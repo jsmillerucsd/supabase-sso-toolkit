@@ -46,45 +46,33 @@ Ask for **staging first**, then a follow-up for production once you have tested.
 ## 3. What you get back
 
 The IdP metadata URL for your environment, and confirmation that your SP is registered.
-Then continue at step 4 of the [README](../README.md#4-register-the-ucsd-idp).
+Then continue at [setup step 5](./setup.md#5-register-with-the-ucsd-idp).
 
 ---
 
-## Three answers that matter
+## Two answers worth getting right
 
-The intake form has a few questions where a casual answer will cost you a round trip
-or a broken integration.
+**NameID must be `persistent` or `emailAddress`.** Supabase rejects anything else, and
+`transient` — the usual Shibboleth default — changes on every login, which would create
+a new account each time. Answering "no special requirements" tends to get you transient.
 
-**NameID format — must be `persistent` or `emailAddress`.** Supabase rejects anything
-else. `transient` is the usual Shibboleth default, and it mints a *new user account on
-every single login*, because the subject changes each time. If you answer "no special
-requirements" you will likely get transient. Say so explicitly.
-
-**`memberOf` must be released multi-valued, with all groups.** Supabase currently
-captures only the first value of a multi-valued SAML attribute unless the mapping sets
-`"array": true` ([supabase/auth#2332](https://github.com/supabase/auth/issues/2332)).
-The shipped attribute mapping sets it. If the IdP sends groups as separate
-`AttributeValue` elements and this is not configured on both ends, you get one group
-per user and AD-group role mapping silently under-grants.
-
-**`eduPersonAffiliation` has to be asked for by name.** It is not in the default
-release set. Ask for `urn:oid:1.3.6.1.4.1.5923.1.1.1.1` explicitly or
-`user_has_affiliation()` returns false for everyone, forever, with no error.
+**`memberOf` must be multi-valued.** If the groups arrive as one concatenated string we
+capture a single group, and AD-group role mapping silently under-grants
+([supabase/auth#2332](https://github.com/supabase/auth/issues/2332)).
 
 ---
 
-## Identity's preference on uniqueID
+## On the opaque uniqueID
 
-The identity team has said they prefer to send ePPN as a 32-character opaque
-alphanumeric value rather than `user@ucsd.edu`. That is fine — the toolkit stores the
-subject as unbounded text and never uses it as a display value or a join key.
+Identity prefers to send ePPN as a 32-character opaque value rather than
+`user@ucsd.edu`. That is fine — the toolkit never uses the subject as a display value
+or a join key.
 
-But an opaque identifier is unreadable in an admin screen and cannot be matched to a
-person by eye. The toolkit falls back automatically:
+It does mean the identifier is unreadable in a support screen, so the toolkit falls
+back automatically:
 
 ```
-eppn (if it still looks like user@domain) → ad_username → ucnet_id → email
+eppn (if still user@domain) → ad_username → ucnet_id → email
 ```
 
-So make sure `ad_username` or `ucnetid` is in your release set. Both are in the default
-UCSD attribute set today.
+`ad_username` and `ucnetid` are both in the standard release set, so this works today.
