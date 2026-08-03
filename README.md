@@ -68,11 +68,18 @@ Note the provider UUID it prints — that is your `providerId`.
 supabase sso list --project-ref <ref>     # look it up again later
 ```
 
-### 5. Give the IdP team your SP details
+### 5. Register your app with the UCSD IdP
 
-They need these to register your app as a service provider:
+Every app is its own service provider and needs its own ServiceNow ticket with a
+completed SAML intake form.
 
-| | |
+→ **[How to register](docs/idp-registration.md)** — ticket routing, and the three
+answers that will otherwise cost you a round trip
+→ **[Pre-filled intake form](docs/saml-intake-form.md)** — attach to the ticket
+
+They need these to register your app:
+
+| Field | Value |
 |---|---|
 | Entity ID | `https://<project-ref>.supabase.co/auth/v1/sso/saml/metadata` |
 | ACS URL | `https://<project-ref>.supabase.co/auth/v1/sso/saml/acs` |
@@ -192,7 +199,7 @@ next token refresh.
 
 ## What you get
 
-| | |
+| Object | Purpose |
 |---|---|
 | `private.user_attributes` | SSO attributes, refreshed on every sign-in |
 | `private.user_has_role(text)` | Role check for RLS policies |
