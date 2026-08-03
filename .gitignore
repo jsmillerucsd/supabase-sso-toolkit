@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+
+# Local verification stack — generated from sql/ and tests/db/
+dev/supabase/.temp/
+dev/supabase/migrations/
+dev/supabase/tests/
+dev/.branches/
+
+.DS_Store
