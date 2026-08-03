@@ -2,33 +2,40 @@
 
 SAML SSO attributes and RLS wiring for Supabase projects.
 
-Your app registers directly with the campus Shibboleth IdP. This package takes the
+Your app registers directly with the UCSD Shibboleth IdP. This package takes the
 attributes that arrive and makes them safe to use in RLS policies.
 
 It is **not** an app template — no admin UI, no user management, no profile tables.
 Your schema and screens stay yours.
 
+**What it installs:** one auth hook, two triggers on the auth schema, and a `private`
+schema. No edge functions.
+
 ---
 
 ## Setup
 
-**1. Install**
+Six steps. Four are in Supabase, one is with the IdP team, one is in your code.
+
+### 1. Enable SAML on the project
+
+SAML 2.0 requires the **Pro plan or above** and is **off by default**.
+
+Dashboard → Authentication → Providers → SAML 2.0 → enable.
+
+→ [Enterprise SSO with SAML](https://supabase.com/docs/guides/auth/enterprise-sso/auth-sso-saml)
+
+### 2. Install the package and run the SQL
 
 ```bash
-npm i github:UCSD/supabase-sso-toolkit#v1.0.0
-```
-
-**2. Run the SQL**
-
-Copy `node_modules/@ucsd/supabase-sso/sql/install.sql` into a new migration and apply it:
-
-```bash
+npm i github:jsmillerucsd/supabase-sso-toolkit#v1.0.0
 supabase migration new sso_install
 ```
 
-Re-running it later is how you upgrade — it is idempotent.
+Paste `node_modules/@ucsd/supabase-sso/sql/install.sql` into the generated file and
+apply it. Re-running a newer version is how you upgrade — it is idempotent.
 
-**3. Enable the auth hook**
+### 3. Enable the auth hook
 
 Dashboard → Authentication → Hooks → Customize Access Token:
 
@@ -36,16 +43,70 @@ Dashboard → Authentication → Hooks → Customize Access Token:
 pg-functions://postgres/private/custom_access_token_hook
 ```
 
-**4. Register the IdP**
+Without this, `app_roles` and `dept_codes_array` never reach the JWT and every RLS
+policy using them denies.
+
+→ [Custom Access Token Hook](https://supabase.com/docs/guides/auth/auth-hooks/custom-access-token-hook)
+
+### 4. Register the UCSD IdP
+
+Requires Supabase CLI v1.46.4+.
 
 ```bash
-supabase sso add --project-ref <ref> --type saml \
-  --metadata-url <idp-metadata-url> \
+supabase sso add --type saml --project-ref <ref> \
+  --metadata-url 'https://a5.ucsd.edu/a5-stage-metadata-sscert3072.xml' \
   --domains ucsd.edu \
   --attribute-mapping-file node_modules/@ucsd/supabase-sso/sql/assets/ucsd-attribute-mapping.json
 ```
 
+> The URL above is the **staging** IdP. Get the production metadata URL from the
+> identity team before going live.
+
 Note the provider UUID it prints — that is your `providerId`.
+
+```bash
+supabase sso list --project-ref <ref>     # look it up again later
+```
+
+### 5. Give the IdP team your SP details
+
+They need these to register your app as a service provider:
+
+| | |
+|---|---|
+| Entity ID | `https://<project-ref>.supabase.co/auth/v1/sso/saml/metadata` |
+| ACS URL | `https://<project-ref>.supabase.co/auth/v1/sso/saml/acs` |
+
+**If you use a custom domain**, substitute it. For example with
+`auth.supabase.ucsd.edu`:
+
+```
+Entity ID:  https://auth.supabase.ucsd.edu/auth/v1/sso/saml/metadata
+ACS URL:    https://auth.supabase.ucsd.edu/auth/v1/sso/saml/acs
+Metadata:   https://auth.supabase.ucsd.edu/auth/v1/sso/saml/metadata
+```
+
+Set the custom domain *before* registering with the IdP — changing it afterward means
+re-registering, because the Entity ID changes.
+
+→ [Custom Domains](https://supabase.com/docs/guides/platform/custom-domains)
+
+### 6. Allow-list your callback URLs
+
+Dashboard → Authentication → URL Configuration.
+
+- **Site URL** — your production origin. The default is `http://localhost:3000`; leaving
+  it there breaks production redirects.
+- **Redirect URLs** — add every origin that completes sign-in. A `redirectTo` that
+  isn't on this list is rejected.
+
+```
+http://localhost:3000/auth/callback
+https://your-app.ucsd.edu/auth/callback
+https://your-app-*.vercel.app/auth/callback
+```
+
+→ [Redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls)
 
 ---
 
@@ -124,7 +185,7 @@ insert into private.emplid_role_mappings (ucpath_emplid, role) values ('10012345
 insert into private.dept_code_role_mappings (dept_code, role) values ('578', 'editor_role');
 ```
 
-Claims recompute automatically when these change. Users pick up the new roles on their
+Claims recompute automatically when these change. Users pick up new roles on their
 next token refresh.
 
 ---
@@ -145,13 +206,30 @@ The auth hook adds `app_roles` and `dept_codes_array` to every JWT.
 
 ---
 
+## Troubleshooting
+
+**Roles are always empty.** The auth hook is not enabled (step 3). Check with
+`select * from public.toolkit_version()` that the SQL ran, then confirm the hook URI
+in the dashboard. If the JWT has `app_claims_degraded: true`, the hook ran but found
+no attributes for that user — look at `private.sync_errors`.
+
+**Sign-in redirects to an error page.** The callback URL is not in the Redirect URLs
+allow-list (step 6).
+
+**Attributes are missing or stale.** Check `private.user_attributes` for the user.
+`synced_at` shows the last successful projection; `source_kind` shows which branch
+wrote it.
+
+---
+
 ## Known limitations
 
 **AD group data is unreliable.** The IdP releases `memberOf` in a form Supabase
-truncates to a single group for most users ([supabase/auth#2332](https://github.com/supabase/auth/issues/2332)).
-Group→role mapping still works — a truncated list can only under-grant, never
-over-grant — but never treat *absence* of a group as a permission signal. Check
-`member_of_status` on `private.user_attributes`; `suspect_truncated` means what it says.
+truncates to a single group for most users
+([supabase/auth#2332](https://github.com/supabase/auth/issues/2332)). Group→role
+mapping still works — a truncated list can only under-grant, never over-grant — but
+never treat *absence* of a group as a permission signal. Check `member_of_status` on
+`private.user_attributes`; `suspect_truncated` means what it says.
 
 **`eduPersonAffiliation` is not released.** `user_has_affiliation()` ships but returns
 false for everyone until that changes.
