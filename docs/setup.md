@@ -19,7 +19,8 @@ npm i github:jsmillerucsd/supabase-sso-toolkit#v1.0.0
 supabase migration new sso_install
 ```
 
-Paste in `node_modules/@ucsd/supabase-sso/sql/install.sql` and apply.
+Paste in [`sql/install.sql`](../sql/install.sql) — shipped at
+`node_modules/@ucsd/supabase-sso/sql/install.sql` — and apply.
 
 The file is idempotent — re-running a newer version is how you upgrade.
 
@@ -32,11 +33,11 @@ pg-functions://postgres/private/custom_access_token_hook
 ```
 
 Without this, `app_roles` and `dept_codes_array` never reach the JWT and every policy
-using them denies.
+using them denies. Source: [`sql/0005_auth_hook.sql`](../sql/0005_auth_hook.sql).
 
 → [Custom Access Token Hook](https://supabase.com/docs/guides/auth/auth-hooks/custom-access-token-hook)
 
-## 4. Set a custom domain (optional, but do it now)
+## 4. Set a custom domain
 
 A custom domain changes your Entity ID. Setting one up after registering with the IdP
 means registering again.
@@ -87,9 +88,10 @@ https://your-app.ucsd.edu/auth/callback
 **Roles are always empty.** The auth hook is not enabled (step 3). Confirm the SQL ran
 with `select * from public.toolkit_version()`, then check the hook URI. If the JWT has
 `app_claims_degraded: true`, the hook ran but found no attributes — see
-`private.sync_errors`.
+`private.sync_errors` ([`sql/0001_core.sql`](../sql/0001_core.sql)).
 
 **Sign-in redirects to an error page.** The callback URL is not allow-listed (step 6).
 
 **Attributes missing or stale.** Check `private.user_attributes`. `synced_at` is the
-last successful projection; `source_kind` shows which branch wrote it.
+last successful projection; `source_kind` shows which branch wrote it. Source:
+[`sql/0002_identity_projection.sql`](../sql/0002_identity_projection.sql).

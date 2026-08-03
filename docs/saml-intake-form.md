@@ -1,96 +1,90 @@
 # SAML Vendor Intake Form — Supabase
 
-Pre-filled for a Supabase project using this toolkit. Answers marked **[FILL IN]** are
-yours. Attach to a ServiceNow ticket — see [idp-registration.md](./idp-registration.md).
+Answers for a Supabase project using this toolkit. Copy into
+[SAMLVendorIntakeForm.docx](./SAMLVendorIntakeForm.docx) and attach to the ticket.
+
+**[FILL IN]** marks the per-app answers.
 
 ---
 
-**Is the vendor an InCommon Federation member?**
+**Q. Is the vendor an InCommon Federation member?**
 
-No. Supabase is a commercial platform (supabase.com).
+**A.** No. Supabase is a commercial platform (supabase.com).
 
-**If not — do you consume InCommon metadata?**
+**Q. If not — do you consume InCommon metadata?**
 
-No. We consume UCSD IdP metadata directly.
+**A.** No. We consume UCSD IdP metadata directly.
 
-**What SAML implementation do you use?**
+**Q. What SAML implementation do you use?**
 
-Other: Supabase Auth (GoTrue), an open-source auth server with built-in SAML 2.0 SP
-support.
+**A.** Other: Supabase Auth (GoTrue), an open-source auth server with built-in SAML 2.0
+SP support.
 
-**What is the primary user population?**
+**Q. What is the primary user population?**
 
-**[FILL IN]** — students / faculty & staff / non-employee affiliates.
+**A. [FILL IN]** — students / faculty & staff / non-employee affiliates.
 
-**Do you support the standard eduPerson / "OID" style attribute names?**
+**Q. Do you support the standard eduPerson / "OID" style attribute names?**
 
-Yes. We accept both OID-style and `urn:mace:ucsd.edu:sso:*` names. Attribute mapping is
-configured on our side at registration time.
+**A.** Yes. We accept both OID-style and `urn:mace:ucsd.edu:sso:*` names. Attribute
+mapping is configured on our side at registration time.
 
-**What are your required / optional SAML attributes?**
+**Q. What are your required / optional SAML attributes?**
 
-The standard UCSD SSO attribute set, plus `memberOf`.
+**A.** The standard UCSD SSO attribute set, plus `memberOf`.
 
-These values are consumed by the application and by Supabase Row Level Security
-policies.
+Please release `memberOf` as a multi-valued attribute containing the user's complete
+group list. We capture only the first value if the groups arrive as a single
+concatenated string.
 
-> Please release `memberOf` as a multi-valued attribute containing the user's complete
-> group list. Our SP captures only the first value if the groups arrive as a single
-> concatenated string.
+**Q. What do you use as the primary user identifier?**
 
-**What do you use as the primary user identifier?**
+**A.** ePPN (`urn:oid:1.3.6.1.4.1.5923.1.1.1.6`). Sending it as a 32-character opaque
+value rather than `user@ucsd.edu` works for us.
 
-ePPN (`urn:oid:1.3.6.1.4.1.5923.1.1.1.6`).
+**Q. Can you handle a primary user identifier of 32+ characters?**
 
-We understand the preference is to send this as a 32-character opaque value rather than
-`user@ucsd.edu`. That works for us.
+**A.** Yes. Stored as unbounded text in Postgres.
 
-**Can you handle a primary user identifier of 32+ characters?**
+**Q. Do you have any special SAML NameID requirements?**
 
-Yes. Stored as unbounded text in Postgres.
+**A.** Yes. The format must be `persistent` or `emailAddress`. Supabase rejects
+`transient`, and a NameID that changes each login would create a new account on every
+sign-in.
 
-**Do you have any special SAML NameID requirements?**
+**Q. How are user accounts provisioned?**
 
-Yes. The NameID format must be **`persistent`** or **`emailAddress`**.
+**A.** On demand, the first time a user authenticates.
 
-Please do not send `transient` — Supabase rejects it, and a NameID that changes each
-login would create a new account on every sign-in.
+**Q. How are admin accounts provisioned?**
 
-**How are user accounts provisioned?**
-
-On demand. Accounts are created automatically the first time a user authenticates.
-
-**How are admin accounts provisioned?**
-
-Same as regular users. Admin roles are assigned inside the application, not at
+**A.** Same as regular users. Admin roles are assigned inside the application, not at
 provisioning time.
 
-**Who are your primary contacts for these areas?**
+**Q. Who are your primary contacts for these areas?**
 
-**[FILL IN]** — technical, support, administrative.
+**A. [FILL IN]** — technical, support, administrative.
 
-**How do you handle user logout?**
+**Q. How do you handle user logout?**
 
-Local logout plus redirect to a configurable URL. The app clears its session, then
-redirects to the UCSD IdP logout endpoint.
+**A.** Local logout plus redirect to a configurable URL. The app clears its session,
+then redirects to the UCSD IdP logout endpoint. We do not implement SAML 2 Single
+Logout — Supabase Auth does not support it.
 
-We do not implement SAML 2 Single Logout — Supabase Auth does not support it.
+**Q. Can you supply SAML metadata for your QA and production environments?**
 
-**Can you supply SAML metadata for your QA and production environments?**
+**A.** Yes. Each application is a separate service provider with its own metadata
+endpoint. This registration covers one application:
 
-Yes. Each application is a separate service provider with its own metadata endpoint.
-This registration covers one application:
+- **[FILL IN]** Application name
+- **[FILL IN]** Environment — staging / production
+- **[FILL IN]** Entity ID — `https://<host>/auth/v1/sso/saml/metadata`
+- **[FILL IN]** ACS URL — `https://<host>/auth/v1/sso/saml/acs`
 
-- **[FILL IN]** Application name:
-- **[FILL IN]** Environment: staging / production
-- **[FILL IN]** Entity ID: `https://<host>/auth/v1/sso/saml/metadata`
-- **[FILL IN]** ACS URL: `https://<host>/auth/v1/sso/saml/acs`
+`<host>` is `<project-ref>.supabase.co` or a custom domain such as
+`auth.supabase.ucsd.edu`. Additional applications will be registered under separate
+tickets.
 
-Where `<host>` is `<project-ref>.supabase.co` or a custom domain such as
-`auth.supabase.ucsd.edu`.
+**Q. How do you handle guest accounts?**
 
-Additional applications will be registered under separate tickets.
-
-**How do you handle guest accounts?**
-
-None. All users authenticate via UCSD SSO. There is no anonymous access.
+**A.** None. All users authenticate via UCSD SSO. There is no anonymous access.

@@ -15,7 +15,7 @@ npm i github:jsmillerucsd/supabase-sso-toolkit#v1.0.0
 supabase migration new sso_install
 ```
 
-Paste in `node_modules/@ucsd/supabase-sso/sql/install.sql` and apply.
+Paste in [`sql/install.sql`](sql/install.sql) and apply.
 
 Then enable SAML, turn on the auth hook, register with the IdP, and allow-list your
 callback URLs — **[full setup](docs/setup.md)**.
@@ -71,7 +71,7 @@ export const GET = createSsoCallbackHandler(env, { providerId: "..." });
 **AD groups are unreliable.** Supabase truncates `memberOf` to a single group for most
 users ([supabase/auth#2332](https://github.com/supabase/auth/issues/2332)). Group→role
 mapping still works — a short list can only under-grant — but never treat *absence* of
-a group as a permission signal. Check `member_of_status` on `private.user_attributes`.
+a group as a permission signal. Check `member_of_status` on [`private.user_attributes`](sql/0002_identity_projection.sql).
 
 **`eduPersonAffiliation` is not released.** `user_has_affiliation()` returns false for
 everyone until that changes.

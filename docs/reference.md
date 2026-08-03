@@ -2,24 +2,26 @@
 
 ## SQL
 
-| Object | Purpose |
-|---|---|
-| `private.user_attributes` | SSO attributes, refreshed on every sign-in |
-| `private.user_has_role(text)` | Role check for RLS policies |
-| `private.user_dept_codes()` | Department codes for RLS policies |
-| `private.user_in_ad_group(text)` | AD group check |
-| `private.user_has_affiliation(text)` | Affiliation check — see limitations |
-| `private.user_has_role_in_db(text)` | Live role check, ignores JWT staleness |
-| `private.require_admin_read()` | Guard for your own read RPCs |
-| `private.require_admin_write()` | Guard for your own write RPCs — checks the live DB |
-| `public.get_my_attribute_summary()` | The caller's own attributes |
-| `public.get_my_ad_groups()` | The caller's AD groups |
-| `public.toolkit_version()` | What is installed |
+| Object | Purpose | Source |
+|---|---|---|
+| `private.user_attributes` | SSO attributes, refreshed on every sign-in | [0002](../sql/0002_identity_projection.sql) |
+| `private.user_has_role(text)` | Role check for RLS policies | [0003](../sql/0003_rls_helpers.sql) |
+| `private.user_dept_codes()` | Department codes for RLS policies | [0003](../sql/0003_rls_helpers.sql) |
+| `private.user_in_ad_group(text)` | AD group check | [0003](../sql/0003_rls_helpers.sql) |
+| `private.user_has_affiliation(text)` | Affiliation check — see limitations | [0003](../sql/0003_rls_helpers.sql) |
+| `private.user_has_role_in_db(text)` | Live role check, ignores JWT staleness | [0003](../sql/0003_rls_helpers.sql) |
+| `private.require_admin_read()` | Guard for your own read RPCs | [0003](../sql/0003_rls_helpers.sql) |
+| `private.require_admin_write()` | Guard for your own write RPCs — checks the live DB | [0003](../sql/0003_rls_helpers.sql) |
+| `public.get_my_attribute_summary()` | The caller's own attributes | [0003](../sql/0003_rls_helpers.sql) |
+| `public.get_my_ad_groups()` | The caller's AD groups | [0003](../sql/0003_rls_helpers.sql) |
+| `public.toolkit_version()` | What is installed | [0001](../sql/0001_core.sql) |
 
 The auth hook adds `app_roles`, `dept_codes_array`, and — when it could not read
 claims — `app_claims_degraded` to every JWT.
 
 ## TypeScript
+
+[`src/index.ts`](../src/index.ts) · [`src/nextjs`](../src/nextjs/index.ts) · [`src/react`](../src/react/index.tsx)
 
 ```ts
 import {
@@ -77,7 +79,7 @@ Department codes are stored un-padded — the IdP sends `0578`, this stores `578
 
 ## Why attributes come from `auth.identities`
 
-Read this before changing `sql/0002_identity_projection.sql`.
+Read this before changing [`sql/0002_identity_projection.sql`](../sql/0002_identity_projection.sql).
 
 `auth.users.raw_user_meta_data` looks like the obvious source. It isn't. Supabase
 merges it key-by-key, so an attribute the IdP stops sending keeps its old value
@@ -92,13 +94,13 @@ JWT metadata.
 
 ## Modules
 
-`sql/install.sql` is generated from these. Edit the modules, not the generated file.
+[`sql/install.sql`](../sql/install.sql) is generated from these. Edit the modules, not the generated file.
 
 | Module | Contents |
 |---|---|
-| `0001_core` | `private` schema, grants, version registry, error log |
-| `0002_identity_projection` | `user_attributes`, triggers, the trust boundary |
-| `0003_rls_helpers` | Policy helpers and admin guards |
-| `0004_roles` | Role tables and the four grant sources |
-| `0005_auth_hook` | Custom access token hook |
-| `0006_ucsd_adapter` | UCSD attribute extraction |
+| [`0001_core`](../sql/0001_core.sql) | `private` schema, grants, version registry, error log |
+| [`0002_identity_projection`](../sql/0002_identity_projection.sql) | `user_attributes`, triggers, the trust boundary |
+| [`0003_rls_helpers`](../sql/0003_rls_helpers.sql) | Policy helpers and admin guards |
+| [`0004_roles`](../sql/0004_roles.sql) | Role tables and the four grant sources |
+| [`0005_auth_hook`](../sql/0005_auth_hook.sql) | Custom access token hook |
+| [`0006_ucsd_adapter`](../sql/0006_ucsd_adapter.sql) | UCSD attribute extraction |
