@@ -6,7 +6,7 @@
 -- ==============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(19);
+SELECT plan(17);
 
 -- ------------------------------------------------------------------------------
 -- Spec 08: projection REPLACES, it does not merge
@@ -91,7 +91,6 @@ SELECT is((SELECT status FROM private.classify_member_of('["CN=A,OU=x","CN=B,OU=
           'classify: JSON array of 3 => parsed (array:true mapping worked)');
 SELECT is((SELECT cns FROM private.classify_member_of('["CN=A,OU=x","CN=B,OU=y","CN=C,OU=z"]'::jsonb)), ARRAY['A','B','C'],
           'classify: all CNs extracted from an array');
--- The signature of supabase/auth#2332 against the live campus IdP.
 SELECT is((SELECT status FROM private.classify_member_of('"CN=OnlyOne,OU=x"'::jsonb)), 'suspect_truncated',
           'classify: single value with no delimiter => suspect_truncated');
 SELECT is((SELECT cns FROM private.classify_member_of('"CN=OnlyOne,OU=x"'::jsonb)), ARRAY['OnlyOne'],

@@ -23,7 +23,7 @@
 --            enabled = true
 --            uri = "pg-functions://postgres/private/custom_access_token_hook"
 --
--- Depends on: 0002 (0004 optional — without it app_roles is always empty)
+-- Depends on: 0002 (0004 optional: without it app_roles is always empty)
 -- ==============================================================================
 
 CREATE OR REPLACE FUNCTION private.custom_access_token_hook(event jsonb)
@@ -38,7 +38,6 @@ DECLARE
   v_user_id uuid;
   v_roles   text[];
   v_depts   text[];
-  v_extra   jsonb;
   v_found   boolean := false;
   src_app   jsonb;
   slim_user jsonb;
@@ -48,8 +47,8 @@ BEGIN
 
   -- ---- app_roles / dept_codes_array -----------------------------------------
   BEGIN
-    SELECT ec.app_roles, ec.dept_codes, ec.extra_claims
-      INTO v_roles, v_depts, v_extra
+    SELECT ec.app_roles, ec.dept_codes
+      INTO v_roles, v_depts
       FROM private.user_effective_claims ec
      WHERE ec.user_id = v_user_id;
 
@@ -58,16 +57,12 @@ BEGIN
     IF v_found THEN
       claims := jsonb_set(claims, '{app_roles}',        to_jsonb(COALESCE(v_roles, '{}'::text[])));
       claims := jsonb_set(claims, '{dept_codes_array}', to_jsonb(COALESCE(v_depts, '{}'::text[])));
-      IF v_extra IS NOT NULL AND v_extra <> '{}'::jsonb THEN
-        claims := claims || v_extra;
-      END IF;
     ELSE
       claims := jsonb_set(claims, '{app_roles}',           '[]'::jsonb);
       claims := jsonb_set(claims, '{dept_codes_array}',    '[]'::jsonb);
       claims := jsonb_set(claims, '{app_claims_degraded}', 'true'::jsonb);
     END IF;
   EXCEPTION WHEN OTHERS THEN
-    -- Deprivilege, never deny. See header.
     claims := jsonb_set(claims, '{app_roles}',           '[]'::jsonb);
     claims := jsonb_set(claims, '{dept_codes_array}',    '[]'::jsonb);
     claims := jsonb_set(claims, '{app_claims_degraded}', 'true'::jsonb);
@@ -106,13 +101,13 @@ END;
 $$;
 
 -- ------------------------------------------------------------------------------
--- Grants — supabase_auth_admin is the only caller
+-- Grants: supabase_auth_admin is the only caller
 -- ------------------------------------------------------------------------------
 REVOKE EXECUTE ON FUNCTION private.custom_access_token_hook(jsonb) FROM public, anon, authenticated;
 GRANT  EXECUTE ON FUNCTION private.custom_access_token_hook(jsonb) TO supabase_auth_admin;
 
-GRANT USAGE  ON SCHEMA private                     TO supabase_auth_admin;
-GRANT SELECT ON private.user_effective_claims      TO supabase_auth_admin;
-GRANT SELECT ON private.user_attributes            TO supabase_auth_admin;
+GRANT USAGE  ON SCHEMA private                TO supabase_auth_admin;
+GRANT SELECT ON private.user_effective_claims TO supabase_auth_admin;
+GRANT SELECT ON private.user_attributes       TO supabase_auth_admin;
 
 SELECT private.register_module('0005_auth_hook', '1.0.0');

@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @jsmillerucsd/supabase-sso v1.0.4 — install
+-- @jsmillerucsd/supabase-sso v1.1.0 — install
 -- ==============================================================================
 -- GENERATED FILE. Edit the modules in sql/ and run `npm run build:sql`.
 --
@@ -133,9 +133,9 @@ SELECT private.register_module('0001_core', '1.0.0');
 -- `private.user_attributes` on every sign-in. Everything downstream reads only
 -- from `private.*`.
 --
--- Read from `auth.identities`, never `auth.users.raw_user_meta_data` — the
+-- Read from `auth.identities`, never `auth.users.raw_user_meta_data`: the
 -- latter is merged key-by-key (so revoked attributes never disappear) and is
--- client-writable. See README, "Why attributes are read from auth.identities".
+-- client-writable.
 --
 -- These triggers run inside the sign-in transaction, so every projection is
 -- wrapped: on error, log and continue. A projection bug must degrade a user to
@@ -147,13 +147,6 @@ SELECT private.register_module('0001_core', '1.0.0');
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS private.user_attributes (
   user_id            uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  source_kind        text NOT NULL DEFAULT 'saml' CHECK (source_kind = 'saml'),
-
-  -- identity_data.sub verbatim (the SAML NameID). Stored for correlation and
-  -- audit only. NEVER a join key, uniqueness constraint, or display value: the
-  -- campus IdP is moving from email to a 32-char opaque value and this column
-  -- must be allowed to change shape without consequence.
-  subject_id         text,
 
   eppn               text,
   ad_username        text,
@@ -170,50 +163,35 @@ CREATE TABLE IF NOT EXISTS private.user_attributes (
   home_dept_code     text,
   home_dept_desc     text,
   dept_codes         text[] NOT NULL DEFAULT '{}',
-  dept_names         text[] NOT NULL DEFAULT '{}',
 
-  -- NULL means the attribute was not released by the IdP at all. '{}' means it
-  -- was released and empty. Keep the distinction: it is how you tell
-  -- "the IdP stopped sending this" from "this user genuinely has none".
-  affiliations       text[],
-
-  member_of_raw      text,
   ad_group_cns       text[] NOT NULL DEFAULT '{}',
   member_of_status   text NOT NULL DEFAULT 'absent'
     CHECK (member_of_status IN ('absent', 'empty', 'parsed', 'suspect_truncated')),
 
   ucpath_emplid      text,
-  pid                text,
-  employee_status    text,
 
   raw                jsonb NOT NULL DEFAULT '{}',
-  synced_at          timestamptz NOT NULL DEFAULT now(),
-  updated_at         timestamptz NOT NULL DEFAULT now()
+  synced_at          timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_attributes_home_dept
   ON private.user_attributes (home_dept_code);
 CREATE INDEX IF NOT EXISTS idx_user_attributes_emplid
   ON private.user_attributes (ucpath_emplid);
-CREATE INDEX IF NOT EXISTS idx_user_attributes_adgroups
-  ON private.user_attributes USING gin (ad_group_cns);
 CREATE INDEX IF NOT EXISTS idx_user_attributes_display
   ON private.user_attributes (display_identifier);
 
 REVOKE ALL ON private.user_attributes FROM public, anon, authenticated;
 
--- The auth hook's slimming block reads this table.
+-- The auth hook reads this table.
 GRANT SELECT ON private.user_attributes TO supabase_auth_admin;
 
 -- Pre-materialized claims. The auth hook reads exactly one row from this table
--- and nothing else — see 0005.
+-- and nothing else.
 CREATE TABLE IF NOT EXISTS private.user_effective_claims (
   user_id      uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   app_roles    text[] NOT NULL DEFAULT '{}',
   dept_codes   text[] NOT NULL DEFAULT '{}',
-  -- Adapter-extensible. Merged into the JWT's top level by the hook, so a campus
-  -- adapter can add claims without editing the hook.
-  extra_claims jsonb NOT NULL DEFAULT '{}',
   computed_at  timestamptz NOT NULL DEFAULT now()
 );
 
@@ -221,13 +199,12 @@ REVOKE ALL ON private.user_effective_claims FROM public, anon, authenticated;
 GRANT SELECT ON private.user_effective_claims TO supabase_auth_admin;
 
 -- ------------------------------------------------------------------------------
--- private.derive_display_identifier — human-readable handle, IdP-change-proof
+-- private.derive_display_identifier
 -- ------------------------------------------------------------------------------
--- The campus IdP is switching to a 32-char opaque unique identifier. It is
--- unresolved whether that replaces the NameID only or the eppn attribute too.
--- This chain is correct under both readings with no code change:
---   * NameID only  -> eppn stays scoped (user@domain) -> chain picks eppn
---   * eppn too     -> regex rejects the opaque value  -> chain picks ad_username
+-- The campus IdP is switching to a 32-char opaque unique identifier. This chain
+-- is correct whether that replaces the NameID only or the eppn attribute too:
+--   NameID only  -> eppn stays scoped (user@domain) -> chain picks eppn
+--   eppn too     -> regex rejects the opaque value  -> chain picks ad_username
 CREATE OR REPLACE FUNCTION private.derive_display_identifier(
   p_eppn        text,
   p_ad_username text,
@@ -248,23 +225,20 @@ AS $$
 $$;
 
 -- ------------------------------------------------------------------------------
--- private.classify_member_of — honest handling of a known-truncated attribute
+-- private.classify_member_of
 -- ------------------------------------------------------------------------------
--- Supabase currently captures only the FIRST value of a multi-valued SAML
--- attribute unless the provider's attribute_mapping sets "array": true
--- (supabase/auth#2332). Against the live campus IdP, `member_of` arrives as a
--- single delimiter-free DN for every user — the signature of that truncation.
---
--- We cannot fix it from here, so we classify it and make it visible:
+-- Supabase captures only the FIRST value of a multi-valued SAML attribute
+-- unless the provider's attribute_mapping sets "array": true
+-- (supabase/auth#2332). We classify what we got:
 --   absent            key not present at all
 --   empty             present but empty
---   parsed            >= 2 values (JSON array, or ';'-delimited) — trustworthy
---   suspect_truncated exactly one value, no delimiter — probably truncated
+--   parsed            >= 2 values (JSON array, or ';'-delimited): trustworthy
+--   suspect_truncated exactly one value, no delimiter: probably truncated
 --
 -- The extracted CN is still used either way: a truncated group list can only
--- ever UNDER-grant, never over-grant, because role derivation is additive.
+-- under-grant, never over-grant, because role derivation is additive.
 CREATE OR REPLACE FUNCTION private.classify_member_of(v jsonb)
-RETURNS TABLE (raw text, cns text[], status text)
+RETURNS TABLE (cns text[], status text)
 LANGUAGE plpgsql
 IMMUTABLE
 SET search_path = ''
@@ -277,7 +251,7 @@ DECLARE
   v_cn    text;
 BEGIN
   IF v IS NULL OR v = 'null'::jsonb THEN
-    RETURN QUERY SELECT NULL::text, '{}'::text[], 'absent'::text;
+    RETURN QUERY SELECT '{}'::text[], 'absent'::text;
     RETURN;
   END IF;
 
@@ -287,13 +261,13 @@ BEGIN
       FROM jsonb_array_elements_text(v) AS e
       WHERE e <> '';
     IF v_parts IS NULL THEN
-      RETURN QUERY SELECT ''::text, '{}'::text[], 'empty'::text;
+      RETURN QUERY SELECT '{}'::text[], 'empty'::text;
       RETURN;
     END IF;
   ELSE
     v_raw := v #>> '{}';
     IF v_raw IS NULL OR v_raw = '' THEN
-      RETURN QUERY SELECT v_raw, '{}'::text[], 'empty'::text;
+      RETURN QUERY SELECT '{}'::text[], 'empty'::text;
       RETURN;
     END IF;
     v_parts := string_to_array(v_raw, ';');
@@ -307,7 +281,6 @@ BEGIN
   END LOOP;
 
   RETURN QUERY SELECT
-    v_raw,
     v_cns,
     CASE
       WHEN jsonb_typeof(v) = 'array' AND jsonb_array_length(v) > 1 THEN 'parsed'
@@ -318,10 +291,10 @@ END;
 $$;
 
 -- ------------------------------------------------------------------------------
--- private.parse_multi — delimited-string-or-array to text[]
+-- private.parse_multi
 -- ------------------------------------------------------------------------------
--- Tolerates both shapes so that enabling "array": true on the SSO provider later
--- requires no migration.
+-- Tolerates both delimited-string and JSON array shapes so that enabling
+-- "array": true on the SSO provider later requires no migration.
 CREATE OR REPLACE FUNCTION private.parse_multi(
   v            jsonb,
   delim        text,
@@ -371,12 +344,7 @@ $$;
 -- ------------------------------------------------------------------------------
 -- Generic version: standard OIDC-ish keys only. A campus adapter module (e.g.
 -- 0006_ucsd_adapter) CREATE OR REPLACEs this with institution-specific mapping.
--- Modules compose by replacing this function — never by cross-referencing each
--- other's tables.
-CREATE OR REPLACE FUNCTION private.extract_attributes(
-  p_source_kind text,
-  p_payload     jsonb
-)
+CREATE OR REPLACE FUNCTION private.extract_attributes(p_payload jsonb)
 RETURNS private.user_attributes
 LANGUAGE plpgsql
 STABLE
@@ -386,24 +354,17 @@ DECLARE
   r  private.user_attributes;
   cc jsonb;
 BEGIN
-  IF p_source_kind <> 'saml' THEN
-    RAISE EXCEPTION 'unknown source_kind %', p_source_kind;
-  END IF;
-
   cc := COALESCE(p_payload -> 'custom_claims', '{}'::jsonb);
 
-  r.subject_id := p_payload ->> 'sub';
   r.email      := NULLIF(p_payload ->> 'email', '');
   r.full_name  := COALESCE(NULLIF(p_payload ->> 'name', ''), NULLIF(p_payload ->> 'full_name', ''));
   r.first_name := NULLIF(p_payload ->> 'given_name', '');
   r.last_name  := NULLIF(p_payload ->> 'family_name', '');
 
   r.dept_codes := '{}';
-  r.dept_names := '{}';
-  r.affiliations := NULL;
 
-  SELECT c.raw, c.cns, c.status
-    INTO r.member_of_raw, r.ad_group_cns, r.member_of_status
+  SELECT c.cns, c.status
+    INTO r.ad_group_cns, r.member_of_status
     FROM private.classify_member_of(cc -> 'member_of') c;
 
   r.display_identifier := private.derive_display_identifier(NULL, NULL, NULL, r.email);
@@ -416,13 +377,11 @@ $$;
 -- ------------------------------------------------------------------------------
 -- private.project_user_attributes — wholesale replace, then recompute
 -- ------------------------------------------------------------------------------
--- Mirrors identity_data's replace semantics deliberately: every column is
--- overwritten from the fresh payload. No key-wise merging, ever — that is the
--- ratchet this whole module exists to avoid.
+-- Mirrors identity_data's replace semantics: every column is overwritten from
+-- the fresh payload. No key-wise merging.
 CREATE OR REPLACE FUNCTION private.project_user_attributes(
-  p_user_id     uuid,
-  p_source_kind text,
-  p_payload     jsonb
+  p_user_id uuid,
+  p_payload jsonb
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -432,30 +391,27 @@ AS $$
 DECLARE
   a private.user_attributes;
 BEGIN
-  a := private.extract_attributes(p_source_kind, p_payload);
+  a := private.extract_attributes(p_payload);
 
   INSERT INTO private.user_attributes (
-    user_id, source_kind, subject_id,
+    user_id,
     eppn, ad_username, ucnet_id, email, display_identifier,
     full_name, first_name, last_name, title,
-    home_dept_code, home_dept_desc, dept_codes, dept_names,
-    affiliations, member_of_raw, ad_group_cns, member_of_status,
-    ucpath_emplid, pid, employee_status,
-    raw, synced_at, updated_at
+    home_dept_code, home_dept_desc, dept_codes,
+    ad_group_cns, member_of_status,
+    ucpath_emplid,
+    raw, synced_at
   )
   VALUES (
-    p_user_id, p_source_kind, a.subject_id,
+    p_user_id,
     a.eppn, a.ad_username, a.ucnet_id, a.email, a.display_identifier,
     a.full_name, a.first_name, a.last_name, a.title,
-    a.home_dept_code, a.home_dept_desc, COALESCE(a.dept_codes, '{}'), COALESCE(a.dept_names, '{}'),
-    a.affiliations, a.member_of_raw, COALESCE(a.ad_group_cns, '{}'),
-    COALESCE(a.member_of_status, 'absent'),
-    a.ucpath_emplid, a.pid, a.employee_status,
-    COALESCE(a.raw, '{}'::jsonb), now(), now()
+    a.home_dept_code, a.home_dept_desc, COALESCE(a.dept_codes, '{}'),
+    COALESCE(a.ad_group_cns, '{}'), COALESCE(a.member_of_status, 'absent'),
+    a.ucpath_emplid,
+    COALESCE(a.raw, '{}'::jsonb), now()
   )
   ON CONFLICT (user_id) DO UPDATE SET
-    source_kind        = EXCLUDED.source_kind,
-    subject_id         = EXCLUDED.subject_id,
     eppn               = EXCLUDED.eppn,
     ad_username        = EXCLUDED.ad_username,
     ucnet_id           = EXCLUDED.ucnet_id,
@@ -468,17 +424,11 @@ BEGIN
     home_dept_code     = EXCLUDED.home_dept_code,
     home_dept_desc     = EXCLUDED.home_dept_desc,
     dept_codes         = EXCLUDED.dept_codes,
-    dept_names         = EXCLUDED.dept_names,
-    affiliations       = EXCLUDED.affiliations,
-    member_of_raw      = EXCLUDED.member_of_raw,
     ad_group_cns       = EXCLUDED.ad_group_cns,
     member_of_status   = EXCLUDED.member_of_status,
     ucpath_emplid      = EXCLUDED.ucpath_emplid,
-    pid                = EXCLUDED.pid,
-    employee_status    = EXCLUDED.employee_status,
     raw                = EXCLUDED.raw,
-    synced_at          = now(),
-    updated_at         = now();
+    synced_at          = now();
 
   PERFORM private.recompute_user_claims(p_user_id);
 END;
@@ -487,26 +437,22 @@ $$;
 -- ------------------------------------------------------------------------------
 -- private.recompute_user_claims — THE COMPOSITION SEAM
 -- ------------------------------------------------------------------------------
--- Trivial version: no role sources exist yet, so app_roles is always empty.
+-- Trivial stub: no role sources exist yet, so app_roles is always empty.
 -- Module 0004_roles CREATE OR REPLACEs this with the real multi-source union.
--- Nothing else in the toolkit may reference 0004's tables directly; replacing
--- this one function is how role support is added. That is what makes 0004
--- genuinely optional.
 CREATE OR REPLACE FUNCTION private.recompute_user_claims(p_user_id uuid)
 RETURNS void
 LANGUAGE sql
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-  INSERT INTO private.user_effective_claims (user_id, app_roles, dept_codes, extra_claims, computed_at)
-  SELECT ua.user_id, '{}'::text[], ua.dept_codes, '{}'::jsonb, now()
+  INSERT INTO private.user_effective_claims (user_id, app_roles, dept_codes, computed_at)
+  SELECT ua.user_id, '{}'::text[], ua.dept_codes, now()
   FROM private.user_attributes ua
   WHERE ua.user_id = p_user_id
   ON CONFLICT (user_id) DO UPDATE SET
-    app_roles    = EXCLUDED.app_roles,
-    dept_codes   = EXCLUDED.dept_codes,
-    extra_claims = EXCLUDED.extra_claims,
-    computed_at  = now();
+    app_roles   = EXCLUDED.app_roles,
+    dept_codes  = EXCLUDED.dept_codes,
+    computed_at = now();
 $$;
 
 CREATE OR REPLACE FUNCTION private.recompute_all_user_claims()
@@ -533,10 +479,9 @@ END;
 $$;
 
 -- ------------------------------------------------------------------------------
--- Triggers — SAML branch on auth.identities
+-- Trigger: project SAML attributes on sign-in
 -- ------------------------------------------------------------------------------
--- Fires on the sign-in path. Fail-open: never let a projection defect break
--- authentication. See header.
+-- Fail-open: never let a projection defect break authentication.
 CREATE OR REPLACE FUNCTION private.on_identity_change()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -546,11 +491,10 @@ AS $$
 BEGIN
   IF NEW.provider LIKE 'sso:%' THEN
     BEGIN
-      PERFORM private.project_user_attributes(NEW.user_id, 'saml', NEW.identity_data);
+      PERFORM private.project_user_attributes(NEW.user_id, NEW.identity_data);
     EXCEPTION WHEN OTHERS THEN
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
       VALUES (NEW.user_id, 'projection_trigger', SQLERRM, NEW.identity_data);
-      -- Stamp synced_at even on failure so staleness stays observable.
       UPDATE private.user_attributes SET synced_at = now() WHERE user_id = NEW.user_id;
     END;
   END IF;
@@ -577,7 +521,7 @@ BEGIN
     WHERE i.provider LIKE 'sso:%'
   LOOP
     BEGIN
-      PERFORM private.project_user_attributes(r.user_id, 'saml', r.identity_data);
+      PERFORM private.project_user_attributes(r.user_id, r.identity_data);
     EXCEPTION WHEN OTHERS THEN
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
       VALUES (r.user_id, 'projection_trigger', 'backfill: ' || SQLERRM, r.identity_data);
@@ -594,14 +538,13 @@ SELECT private.register_module('0002_identity_projection', '1.0.0');
 -- ==============================================================================
 -- Helper functions for RLS policies and application code.
 --
--- READ-SOURCE RULE (this has regressed twice in the predecessor project):
+-- READ-SOURCE RULE:
 --   * Role and department checks read TOP-LEVEL JWT claims injected by the auth
---     hook (`app_roles`, `dept_codes_array`) — never `app_metadata`, never
+--     hook (`app_roles`, `dept_codes_array`): never `app_metadata`, never
 --     `user_metadata`. `user_metadata` is client-writable; trusting it is a
 --     privilege-escalation vector.
---   * Attribute checks that are not in the JWT (AD groups, affiliations) read
+--   * Attribute checks that are not in the JWT (AD groups) read
 --     `private.user_attributes` directly.
--- Test 16_helper_sources.sql locks both rules.
 --
 -- Depends on: 0002
 -- ==============================================================================
@@ -622,7 +565,6 @@ AS $$
 $$;
 
 -- Department codes from the hook-injected top-level `dept_codes_array` claim.
--- No app_metadata fallback: if the claim is missing the answer is "none".
 CREATE OR REPLACE FUNCTION private.user_dept_codes()
 RETURNS text[]
 LANGUAGE sql
@@ -680,30 +622,8 @@ AS $$
   SELECT group_cn = ANY (private.user_ad_groups());
 $$;
 
--- NOTE: the campus IdP does not currently release eduPersonAffiliation, so
--- `affiliations` is NULL for every user and this returns false for everyone.
--- It ships for forward-compatibility. Confirm the attribute is actually
--- arriving before gating any access on it:
---   SELECT count(*) FILTER (WHERE affiliations IS NOT NULL), count(*)
---     FROM private.user_attributes;
-CREATE OR REPLACE FUNCTION private.user_has_affiliation(target text)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-  SELECT COALESCE(
-    (SELECT target = ANY (ua.affiliations)
-     FROM private.user_attributes ua
-     WHERE ua.user_id = (SELECT auth.uid())),
-    false
-  );
-$$;
-
 -- Live role check that bypasses JWT staleness. Use in write paths so a
 -- revocation takes effect immediately instead of at next token refresh.
--- Reads the materialized claims table, which is recomputed at write time.
 CREATE OR REPLACE FUNCTION private.user_has_role_in_db(p_role text)
 RETURNS boolean
 LANGUAGE sql
@@ -722,12 +642,8 @@ $$;
 -- ------------------------------------------------------------------------------
 -- Authorization guards for SECURITY DEFINER RPCs
 -- ------------------------------------------------------------------------------
--- Shipped because any RPC that reads the SSO layer needs them, and getting the
--- JWT-vs-live-DB distinction right is exactly the kind of thing this toolkit
--- exists to stop each app from re-deriving.
---
---   require_admin_read  — JWT only. Fast; stale up to one token lifetime.
---   require_admin_write — JWT AND live DB. A revoked admin loses write access
+--   require_admin_read  : JWT only. Fast; stale up to one token lifetime.
+--   require_admin_write : JWT AND live DB. A revoked admin loses write access
 --                         immediately rather than at next token refresh.
 CREATE OR REPLACE FUNCTION private.require_admin_read()
 RETURNS void
@@ -759,19 +675,8 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION private.actor()
-RETURNS text
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-  SELECT COALESCE((SELECT auth.jwt()) ->> 'email', (SELECT auth.uid())::text, 'unknown');
-$$;
-
 REVOKE EXECUTE ON FUNCTION private.require_admin_read()  FROM public, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION private.require_admin_write() FROM public, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION private.actor()               FROM public, anon, authenticated;
 
 -- ------------------------------------------------------------------------------
 -- Public RPC wrappers (private schema is never exposed to PostgREST)
@@ -807,8 +712,6 @@ AS $$
        'dept_codes',         to_jsonb(ua.dept_codes),
        'ad_group_cns',       to_jsonb(ua.ad_group_cns),
        'member_of_status',   ua.member_of_status,
-       'affiliations',       to_jsonb(ua.affiliations),
-       'source_kind',        ua.source_kind,
        'synced_at',          ua.synced_at
      )
      FROM private.user_attributes ua
@@ -830,7 +733,6 @@ BEGIN
     'private.claims_degraded()',
     'private.user_ad_groups()',
     'private.user_in_ad_group(text)',
-    'private.user_has_affiliation(text)',
     'private.user_has_role_in_db(text)',
     'public.get_my_ad_groups()',
     'public.get_my_attribute_summary()'
@@ -962,8 +864,7 @@ BEGIN
     ON CONFLICT (user_id) DO UPDATE SET
       app_roles   = '{}',
       dept_codes  = '{}',
-      computed_at = now();
-    RETURN;
+      computed_at = now();    RETURN;
   END IF;
 
   SELECT array_agg(ur.role) INTO manual
@@ -993,13 +894,12 @@ BEGIN
     || COALESCE(dept, '{}')
   ) AS r;
 
-  INSERT INTO private.user_effective_claims (user_id, app_roles, dept_codes, extra_claims, computed_at)
-  VALUES (p_user_id, COALESCE(all_roles, '{}'), ua.dept_codes, '{}'::jsonb, now())
+  INSERT INTO private.user_effective_claims (user_id, app_roles, dept_codes, computed_at)
+  VALUES (p_user_id, COALESCE(all_roles, '{}'), ua.dept_codes, now())
   ON CONFLICT (user_id) DO UPDATE SET
-    app_roles    = EXCLUDED.app_roles,
-    dept_codes   = EXCLUDED.dept_codes,
-    extra_claims = EXCLUDED.extra_claims,
-    computed_at  = now();
+    app_roles   = EXCLUDED.app_roles,
+    dept_codes  = EXCLUDED.dept_codes,
+    computed_at = now();
 END;
 $$;
 
@@ -1101,7 +1001,7 @@ SELECT private.register_module('0004_roles', '1.0.0');
 --            enabled = true
 --            uri = "pg-functions://postgres/private/custom_access_token_hook"
 --
--- Depends on: 0002 (0004 optional — without it app_roles is always empty)
+-- Depends on: 0002 (0004 optional: without it app_roles is always empty)
 -- ==============================================================================
 
 CREATE OR REPLACE FUNCTION private.custom_access_token_hook(event jsonb)
@@ -1116,7 +1016,6 @@ DECLARE
   v_user_id uuid;
   v_roles   text[];
   v_depts   text[];
-  v_extra   jsonb;
   v_found   boolean := false;
   src_app   jsonb;
   slim_user jsonb;
@@ -1126,8 +1025,8 @@ BEGIN
 
   -- ---- app_roles / dept_codes_array -----------------------------------------
   BEGIN
-    SELECT ec.app_roles, ec.dept_codes, ec.extra_claims
-      INTO v_roles, v_depts, v_extra
+    SELECT ec.app_roles, ec.dept_codes
+      INTO v_roles, v_depts
       FROM private.user_effective_claims ec
      WHERE ec.user_id = v_user_id;
 
@@ -1136,16 +1035,12 @@ BEGIN
     IF v_found THEN
       claims := jsonb_set(claims, '{app_roles}',        to_jsonb(COALESCE(v_roles, '{}'::text[])));
       claims := jsonb_set(claims, '{dept_codes_array}', to_jsonb(COALESCE(v_depts, '{}'::text[])));
-      IF v_extra IS NOT NULL AND v_extra <> '{}'::jsonb THEN
-        claims := claims || v_extra;
-      END IF;
     ELSE
       claims := jsonb_set(claims, '{app_roles}',           '[]'::jsonb);
       claims := jsonb_set(claims, '{dept_codes_array}',    '[]'::jsonb);
       claims := jsonb_set(claims, '{app_claims_degraded}', 'true'::jsonb);
     END IF;
   EXCEPTION WHEN OTHERS THEN
-    -- Deprivilege, never deny. See header.
     claims := jsonb_set(claims, '{app_roles}',           '[]'::jsonb);
     claims := jsonb_set(claims, '{dept_codes_array}',    '[]'::jsonb);
     claims := jsonb_set(claims, '{app_claims_degraded}', 'true'::jsonb);
@@ -1184,14 +1079,14 @@ END;
 $$;
 
 -- ------------------------------------------------------------------------------
--- Grants — supabase_auth_admin is the only caller
+-- Grants: supabase_auth_admin is the only caller
 -- ------------------------------------------------------------------------------
 REVOKE EXECUTE ON FUNCTION private.custom_access_token_hook(jsonb) FROM public, anon, authenticated;
 GRANT  EXECUTE ON FUNCTION private.custom_access_token_hook(jsonb) TO supabase_auth_admin;
 
-GRANT USAGE  ON SCHEMA private                     TO supabase_auth_admin;
-GRANT SELECT ON private.user_effective_claims      TO supabase_auth_admin;
-GRANT SELECT ON private.user_attributes            TO supabase_auth_admin;
+GRANT USAGE  ON SCHEMA private                TO supabase_auth_admin;
+GRANT SELECT ON private.user_effective_claims TO supabase_auth_admin;
+GRANT SELECT ON private.user_attributes       TO supabase_auth_admin;
 
 SELECT private.register_module('0005_auth_hook', '1.0.0');
 
@@ -1206,17 +1101,13 @@ SELECT private.register_module('0005_auth_hook', '1.0.0');
 -- It works by CREATE OR REPLACEing private.extract_attributes(): the seam that
 -- 0002 defines. Another campus writes its own adapter module and skips this one.
 --
--- WHERE THE ATTRIBUTES LIVE:
---   Standard keys at the top level of identity_data (sub, email, name, ...);
---   every UCSD attribute nests under identity_data.custom_claims.
+-- Standard keys live at the top level of identity_data (sub, email, name, ...);
+-- every UCSD attribute nests under identity_data.custom_claims.
 --
 -- Depends on: 0002 (0004 optional)
 -- ==============================================================================
 
-CREATE OR REPLACE FUNCTION private.extract_attributes(
-  p_source_kind text,
-  p_payload     jsonb
-)
+CREATE OR REPLACE FUNCTION private.extract_attributes(p_payload jsonb)
 RETURNS private.user_attributes
 LANGUAGE plpgsql
 STABLE
@@ -1227,14 +1118,9 @@ DECLARE
   cc  jsonb;   -- where UCSD attributes live
   src jsonb;   -- where standard keys live
 BEGIN
-  IF p_source_kind <> 'saml' THEN
-    RAISE EXCEPTION 'unknown source_kind %', p_source_kind;
-  END IF;
-
   cc  := COALESCE(p_payload -> 'custom_claims', '{}'::jsonb);
   src := COALESCE(p_payload, '{}'::jsonb);
 
-  r.subject_id  := src ->> 'sub';
   r.eppn        := NULLIF(cc ->> 'eppn', '');
   r.ad_username := NULLIF(cc ->> 'ad_username', '');
   r.ucnet_id    := NULLIF(cc ->> 'ucnet_id', '');
@@ -1245,29 +1131,17 @@ BEGIN
   r.last_name   := COALESCE(NULLIF(cc ->> 'last_name', ''),  NULLIF(src ->> 'family_name', ''));
   r.title       := NULLIF(cc ->> 'title', '');
 
-  -- Department codes are stored canonically un-padded. The IdP sends them
-  -- zero-padded ("0578"); downstream lookup tables use "578". Normalizing here,
-  -- once, is what keeps every consumer from having to remember to do it.
+  -- Department codes are stored un-padded. The IdP sends them zero-padded
+  -- ("0578"); downstream lookup tables use "578".
   r.home_dept_code := NULLIF(ltrim(COALESCE(cc ->> 'home_dept_code', ''), '0'), '');
   r.home_dept_desc := NULLIF(cc ->> 'home_dept_desc', '');
   r.dept_codes     := private.parse_multi(cc -> 'dept_codes', ',', true);
-  r.dept_names     := private.parse_multi(cc -> 'dept_names', ',', false);
 
-  -- NULL (not released) vs '{}' (released and empty) is a meaningful distinction
-  -- here: the campus IdP does not currently release eduPersonAffiliation at all,
-  -- so this column is NULL for every user until that changes.
-  r.affiliations := CASE
-    WHEN cc ? 'affiliation' THEN private.parse_multi(cc -> 'affiliation', ';', false)
-    ELSE NULL
-  END;
-
-  SELECT c.raw, c.cns, c.status
-    INTO r.member_of_raw, r.ad_group_cns, r.member_of_status
+  SELECT c.cns, c.status
+    INTO r.ad_group_cns, r.member_of_status
     FROM private.classify_member_of(cc -> 'member_of') c;
 
-  r.ucpath_emplid   := NULLIF(cc ->> 'ucpath_emplid', '');
-  r.pid             := NULLIF(cc ->> 'pid', '');
-  r.employee_status := NULLIF(cc ->> 'employee_status', '');
+  r.ucpath_emplid := NULLIF(cc ->> 'ucpath_emplid', '');
 
   r.display_identifier := private.derive_display_identifier(
     r.eppn, r.ad_username, r.ucnet_id, r.email
@@ -1291,7 +1165,7 @@ BEGIN
     WHERE i.provider LIKE 'sso:%'
   LOOP
     BEGIN
-      PERFORM private.project_user_attributes(r.user_id, 'saml', r.identity_data);
+      PERFORM private.project_user_attributes(r.user_id, r.identity_data);
     EXCEPTION WHEN OTHERS THEN
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
       VALUES (r.user_id, 'projection_trigger', 'ucsd adapter reproject: ' || SQLERRM, r.identity_data);

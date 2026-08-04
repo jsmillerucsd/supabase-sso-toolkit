@@ -58,7 +58,6 @@ schema is touched.
 | `private.user_dept_codes()` | RLS policy department check (reads JWT) |
 | `private.user_has_role_in_db(text)` | Live role check, bypasses JWT staleness |
 | `private.user_in_ad_group(text)` | AD group membership check |
-| `private.user_has_affiliation(text)` | eduPersonAffiliation check (inactive, see limitations) |
 | `private.require_admin_read()` | Guard for your read RPCs (JWT only) |
 | `private.require_admin_write()` | Guard for your write RPCs (JWT + live DB) |
 | `public.get_my_attribute_summary()` | Caller's own attributes (RPC) |
@@ -187,9 +186,6 @@ for most users ([supabase/auth#2332](https://github.com/supabase/auth/issues/233
 Group-to-role mapping still works (a short list can only under-grant), but never
 treat *absence* of a group as a permission signal. Check `member_of_status` on
 [`private.user_attributes`](sql/0002_identity_projection.sql).
-
-**`eduPersonAffiliation` is not released.** `user_has_affiliation()` returns
-false for everyone until that changes.
 
 **No Single Logout.** Supabase does not support SAML SLO. Logout clears the
 local session and redirects through the IdP, but already-issued JWTs live until

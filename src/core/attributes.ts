@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *
  * `suspect_truncated` is the signature of supabase/auth#2332: a single AD group
  * with no delimiter, which is what a truncated multi-valued SAML attribute looks
- * like. The group we did receive is still valid — role derivation is additive,
+ * like. The group we did receive is still valid: role derivation is additive,
  * so truncation can only under-grant.
  */
 export type MemberOfStatus = "absent" | "empty" | "parsed" | "suspect_truncated";
@@ -23,14 +23,11 @@ export interface AttributeSummary {
   dept_codes: string[];
   ad_group_cns: string[];
   member_of_status: MemberOfStatus;
-  /** null means the IdP released no affiliation at all, not "none". */
-  affiliations: string[] | null;
-  source_kind: "saml";
   synced_at: string;
 }
 
 /**
- * Reads the caller's projected attributes — the trusted copy, taken from
+ * Reads the caller's projected attributes: the trusted copy, taken from
  * `auth.identities` at sign-in, not from client-writable `user_metadata`.
  */
 export async function getMyAttributes(
@@ -45,8 +42,8 @@ export async function getMyAttributes(
 /**
  * AD group CNs for the caller.
  *
- * These deliberately never ride in the JWT — the list can be large and the
- * session cookie has a hard size ceiling. This is a live database read.
+ * These never ride in the JWT: the list can be large and the session cookie
+ * has a hard size ceiling. This is a live database read.
  */
 export async function getMyAdGroups(supabase: SupabaseClient): Promise<string[]> {
   const { data, error } = await supabase.rpc("get_my_ad_groups");

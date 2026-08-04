@@ -10,7 +10,7 @@
 -- ==============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(14);
+SELECT plan(13);
 
 -- ------------------------------------------------------------------------------
 -- Spec 01: the hook must ignore poisoned metadata on the incoming event
@@ -127,9 +127,6 @@ SELECT ok(NOT private.user_has_role('admin_role'),
 
 SELECT is(private.user_dept_codes(), ARRAY['578'],
           'user_dept_codes: reads top-level dept_codes_array only');
-
-SELECT ok(NOT private.user_has_affiliation('staff'),
-          'user_has_affiliation: false when the IdP released no affiliation');
 
 SELECT ok(NOT private.claims_degraded(),
           'claims_degraded: false when the hook materialized claims normally');

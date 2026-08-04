@@ -116,8 +116,7 @@ BEGIN
     ON CONFLICT (user_id) DO UPDATE SET
       app_roles   = '{}',
       dept_codes  = '{}',
-      computed_at = now();
-    RETURN;
+      computed_at = now();    RETURN;
   END IF;
 
   SELECT array_agg(ur.role) INTO manual
@@ -147,13 +146,12 @@ BEGIN
     || COALESCE(dept, '{}')
   ) AS r;
 
-  INSERT INTO private.user_effective_claims (user_id, app_roles, dept_codes, extra_claims, computed_at)
-  VALUES (p_user_id, COALESCE(all_roles, '{}'), ua.dept_codes, '{}'::jsonb, now())
+  INSERT INTO private.user_effective_claims (user_id, app_roles, dept_codes, computed_at)
+  VALUES (p_user_id, COALESCE(all_roles, '{}'), ua.dept_codes, now())
   ON CONFLICT (user_id) DO UPDATE SET
-    app_roles    = EXCLUDED.app_roles,
-    dept_codes   = EXCLUDED.dept_codes,
-    extra_claims = EXCLUDED.extra_claims,
-    computed_at  = now();
+    app_roles   = EXCLUDED.app_roles,
+    dept_codes  = EXCLUDED.dept_codes,
+    computed_at = now();
 END;
 $$;
 

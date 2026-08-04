@@ -6,7 +6,7 @@
 -- ==============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(9);
+SELECT plan(7);
 
 INSERT INTO private.app_roles (role, description) VALUES
   ('reader_role', 'test'), ('dept_role', 'test'), ('emplid_role', 'test')
@@ -94,23 +94,6 @@ SELECT ok(
             FROM private.user_effective_claims ec
            WHERE ec.user_id = '22222222-2222-2222-2222-222222222222'), false),
   'degraded: the one CN we did receive still grants its role'
-);
-
--- ------------------------------------------------------------------------------
--- source_kind is always 'saml'
--- ------------------------------------------------------------------------------
-SELECT is(
-  (SELECT source_kind FROM private.user_attributes
-    WHERE user_id = '11111111-1111-1111-1111-111111111111'),
-  'saml',
-  'projection: source_kind is saml'
-);
-
-SELECT is(
-  (SELECT source_kind FROM private.user_attributes
-    WHERE user_id = '22222222-2222-2222-2222-222222222222'),
-  'saml',
-  'projection: source_kind is saml for every projected user'
 );
 
 SELECT * FROM finish();

@@ -8,7 +8,6 @@
 | `private.user_has_role(text)` | Role check for RLS policies | [0003](../sql/0003_rls_helpers.sql) |
 | `private.user_dept_codes()` | Department codes for RLS policies | [0003](../sql/0003_rls_helpers.sql) |
 | `private.user_in_ad_group(text)` | AD group check | [0003](../sql/0003_rls_helpers.sql) |
-| `private.user_has_affiliation(text)` | Affiliation check — see limitations | [0003](../sql/0003_rls_helpers.sql) |
 | `private.user_has_role_in_db(text)` | Live role check, ignores JWT staleness | [0003](../sql/0003_rls_helpers.sql) |
 | `private.require_admin_read()` | Guard for your own read RPCs | [0003](../sql/0003_rls_helpers.sql) |
 | `private.require_admin_write()` | Guard for your own write RPCs — checks the live DB | [0003](../sql/0003_rls_helpers.sql) |

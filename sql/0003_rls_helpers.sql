@@ -3,14 +3,13 @@
 -- ==============================================================================
 -- Helper functions for RLS policies and application code.
 --
--- READ-SOURCE RULE (this has regressed twice in the predecessor project):
+-- READ-SOURCE RULE:
 --   * Role and department checks read TOP-LEVEL JWT claims injected by the auth
---     hook (`app_roles`, `dept_codes_array`) — never `app_metadata`, never
+--     hook (`app_roles`, `dept_codes_array`): never `app_metadata`, never
 --     `user_metadata`. `user_metadata` is client-writable; trusting it is a
 --     privilege-escalation vector.
---   * Attribute checks that are not in the JWT (AD groups, affiliations) read
+--   * Attribute checks that are not in the JWT (AD groups) read
 --     `private.user_attributes` directly.
--- Test 16_helper_sources.sql locks both rules.
 --
 -- Depends on: 0002
 -- ==============================================================================
@@ -31,7 +30,6 @@ AS $$
 $$;
 
 -- Department codes from the hook-injected top-level `dept_codes_array` claim.
--- No app_metadata fallback: if the claim is missing the answer is "none".
 CREATE OR REPLACE FUNCTION private.user_dept_codes()
 RETURNS text[]
 LANGUAGE sql
@@ -89,30 +87,8 @@ AS $$
   SELECT group_cn = ANY (private.user_ad_groups());
 $$;
 
--- NOTE: the campus IdP does not currently release eduPersonAffiliation, so
--- `affiliations` is NULL for every user and this returns false for everyone.
--- It ships for forward-compatibility. Confirm the attribute is actually
--- arriving before gating any access on it:
---   SELECT count(*) FILTER (WHERE affiliations IS NOT NULL), count(*)
---     FROM private.user_attributes;
-CREATE OR REPLACE FUNCTION private.user_has_affiliation(target text)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-  SELECT COALESCE(
-    (SELECT target = ANY (ua.affiliations)
-     FROM private.user_attributes ua
-     WHERE ua.user_id = (SELECT auth.uid())),
-    false
-  );
-$$;
-
 -- Live role check that bypasses JWT staleness. Use in write paths so a
 -- revocation takes effect immediately instead of at next token refresh.
--- Reads the materialized claims table, which is recomputed at write time.
 CREATE OR REPLACE FUNCTION private.user_has_role_in_db(p_role text)
 RETURNS boolean
 LANGUAGE sql
@@ -131,12 +107,8 @@ $$;
 -- ------------------------------------------------------------------------------
 -- Authorization guards for SECURITY DEFINER RPCs
 -- ------------------------------------------------------------------------------
--- Shipped because any RPC that reads the SSO layer needs them, and getting the
--- JWT-vs-live-DB distinction right is exactly the kind of thing this toolkit
--- exists to stop each app from re-deriving.
---
---   require_admin_read  — JWT only. Fast; stale up to one token lifetime.
---   require_admin_write — JWT AND live DB. A revoked admin loses write access
+--   require_admin_read  : JWT only. Fast; stale up to one token lifetime.
+--   require_admin_write : JWT AND live DB. A revoked admin loses write access
 --                         immediately rather than at next token refresh.
 CREATE OR REPLACE FUNCTION private.require_admin_read()
 RETURNS void
@@ -168,19 +140,8 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION private.actor()
-RETURNS text
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-  SELECT COALESCE((SELECT auth.jwt()) ->> 'email', (SELECT auth.uid())::text, 'unknown');
-$$;
-
 REVOKE EXECUTE ON FUNCTION private.require_admin_read()  FROM public, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION private.require_admin_write() FROM public, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION private.actor()               FROM public, anon, authenticated;
 
 -- ------------------------------------------------------------------------------
 -- Public RPC wrappers (private schema is never exposed to PostgREST)
@@ -216,8 +177,6 @@ AS $$
        'dept_codes',         to_jsonb(ua.dept_codes),
        'ad_group_cns',       to_jsonb(ua.ad_group_cns),
        'member_of_status',   ua.member_of_status,
-       'affiliations',       to_jsonb(ua.affiliations),
-       'source_kind',        ua.source_kind,
        'synced_at',          ua.synced_at
      )
      FROM private.user_attributes ua
@@ -239,7 +198,6 @@ BEGIN
     'private.claims_degraded()',
     'private.user_ad_groups()',
     'private.user_in_ad_group(text)',
-    'private.user_has_affiliation(text)',
     'private.user_has_role_in_db(text)',
     'public.get_my_ad_groups()',
     'public.get_my_attribute_summary()'
