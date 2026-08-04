@@ -1,12 +1,11 @@
 # @jsmillerucsd/supabase-sso
 
 SAML SSO attribute projection and RLS wiring for Supabase projects at UCSD.
-Connects your Supabase app to the campus Shibboleth IdP, copies SAML attributes
-into a trusted `private` schema on every sign-in, and exposes role/department
-helpers for RLS policies. Ships a Next.js/SPA client for sign-in, callback, and
-claims reading.
+Connects your app to the campus Shibboleth IdP, copies SAML attributes into a
+trusted `private` schema on every sign-in, and exposes role/department helpers
+for RLS policies. Ships a Next.js/SPA client for sign-in, callback, and claims.
 
-Not an app template — no admin UI, no user management, no profile tables.
+Not an app template. No admin UI, no user management, no profile tables.
 
 ## How it works
 
@@ -19,15 +18,15 @@ Not an app template — no admin UI, no user management, no profile tables.
 5.  app queries          RLS policies call private.user_has_role(...)
 ```
 
-Attributes are copied from `auth.identities` — not `raw_user_meta_data`, which
-is merged key-by-key and client-writable — and roles are computed at write time
-so the hook stays a single row read.
+Attributes are copied from `auth.identities`, not `raw_user_meta_data` (which is
+merged key-by-key and client-writable). Roles are computed at write time so the
+hook stays a single row read.
 
 ## Install
 
 Add one line to your app's `.npmrc`:
 
-```bash
+```
 @jsmillerucsd:registry=https://npm.pkg.github.com
 ```
 
@@ -38,7 +37,7 @@ supabase migration new sso_install
 
 Paste in [`sql/install.sql`](sql/install.sql) and apply with `supabase db push`.
 Then enable SAML, turn on the auth hook, register with the IdP, and allow-list
-your callback URLs — **[full setup](docs/setup.md)**. The SQL is idempotent;
+your callback URLs. See **[full setup](docs/setup.md)**. The SQL is idempotent;
 re-running a newer `install.sql` is how you upgrade.
 
 ## RLS policies
@@ -112,7 +111,7 @@ export const GET = createSsoCallbackHandler(
   { providerId: process.env.SUPABASE_SSO_PROVIDER_ID! },
 );
 
-// app/page.tsx — server components
+// app/page.tsx (server components)
 import { getServerAppClaims } from "@jsmillerucsd/supabase-sso/nextjs";
 import { cookies } from "next/headers";
 const claims = await getServerAppClaims(await cookies(), {
@@ -127,20 +126,20 @@ const claims = await getServerAppClaims(await cookies(), {
 const config = { providerId: "..." };   // from `supabase sso list`
 ```
 
-Everything else has a default — see [reference](docs/reference.md#config).
+Everything else has a default. See [reference](docs/reference.md#config).
 
 ## Docs
 
-- **[Setup](docs/setup.md)** — the six steps, and troubleshooting
-- **[Reference](docs/reference.md)** — SQL and TypeScript API, granting roles
-- **[IdP registration](docs/idp-registration.md)** — ServiceNow ticket routing
-- **[Intake form](docs/saml-intake-form.md)** — answers, and the blank .docx
+- **[Setup](docs/setup.md)**: the six steps, and troubleshooting
+- **[Reference](docs/reference.md)**: SQL and TypeScript API, granting roles
+- **[IdP registration](docs/idp-registration.md)**: ServiceNow ticket routing
+- **[Intake form](docs/saml-intake-form.md)**: answers, and the blank .docx
 
 ## Limitations
 
 **AD groups are unreliable.** Supabase truncates `memberOf` to a single group
 for most users ([supabase/auth#2332](https://github.com/supabase/auth/issues/2332)).
-Group→role mapping still works — a short list can only under-grant — but never
+Group-to-role mapping still works (a short list can only under-grant), but never
 treat *absence* of a group as a permission signal. Check `member_of_status` on
 [`private.user_attributes`](sql/0002_identity_projection.sql).
 
