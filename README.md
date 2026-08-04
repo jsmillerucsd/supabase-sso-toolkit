@@ -22,6 +22,52 @@ Attributes are copied from `auth.identities`, not `raw_user_meta_data` (which is
 merged key-by-key and client-writable). Roles are computed at write time so the
 hook stays a single row read.
 
+## What gets installed
+
+All objects live in a `private` schema that is never exposed to PostgREST. Client
+access is through the `public.*` RPCs listed below. Nothing in your `public`
+schema is touched.
+
+**Tables**
+
+| Table | Purpose |
+|---|---|
+| `private.user_attributes` | SAML attributes, replaced wholesale on every sign-in |
+| `private.user_effective_claims` | Precomputed `app_roles` + `dept_codes`, read by the auth hook |
+| `private.app_roles` | Role definitions |
+| `private.user_roles` | Manual role grants (with optional expiry) |
+| `private.ad_group_role_mappings` | AD group to role mapping |
+| `private.emplid_role_mappings` | UCPath emplid to role mapping |
+| `private.dept_code_role_mappings` | Department code to role mapping |
+| `private.toolkit_modules` | Installed module versions |
+| `private.sync_errors` | Fail-open error log for projection defects |
+
+**Triggers**
+
+| Trigger | On | Does |
+|---|---|---|
+| `on_sso_identity_projected` | `auth.identities` (SAML) | Projects attributes into `private.user_attributes` |
+| `on_legacy_user_projected` | `auth.users` (legacy OAuth) | Same, for the retired central-auth flow |
+| `on_*_changed` (4) | `private.*_role_mappings`, `private.user_roles` | Recomputes affected users' claims |
+
+**Functions**
+
+| Function | Use |
+|---|---|
+| `private.custom_access_token_hook(jsonb)` | Access token hook. Injects `app_roles`, `dept_codes_array` into the JWT |
+| `private.user_has_role(text)` | RLS policy role check (reads JWT) |
+| `private.user_dept_codes()` | RLS policy department check (reads JWT) |
+| `private.user_has_role_in_db(text)` | Live role check, bypasses JWT staleness |
+| `private.user_in_ad_group(text)` | AD group membership check |
+| `private.user_has_affiliation(text)` | eduPersonAffiliation check (inactive, see limitations) |
+| `private.require_admin_read()` | Guard for your read RPCs (JWT only) |
+| `private.require_admin_write()` | Guard for your write RPCs (JWT + live DB) |
+| `public.get_my_attribute_summary()` | Caller's own attributes (RPC) |
+| `public.get_my_ad_groups()` | Caller's AD groups (RPC) |
+| `public.toolkit_version()` | Installed versions (RPC) |
+
+Full signatures and granting roles: **[reference](docs/reference.md)**.
+
 ## Install
 
 Add one line to your app's `.npmrc`:
