@@ -5,8 +5,9 @@ SAML SSO attributes and RLS wiring for Supabase projects.
 Your app registers directly with the UCSD Shibboleth IdP. This package takes the
 attributes that arrive and makes them safe to use in RLS policies.
 
-Not an app template — no admin UI, no user management, no profile tables. It installs
-one auth hook, two triggers, and a `private` schema. No edge functions.
+Not an app template — no admin UI, no user management, no profile tables. Just the
+plumbing: a `private` schema with attribute and role tables, two sign-in triggers,
+one access-token hook, and the RLS helper functions. No edge functions.
 
 ## How it works
 
@@ -14,7 +15,7 @@ one auth hook, two triggers, and a `private` schema. No edge functions.
 1.  signInWithSSO()      browser redirects to the UCSD IdP
 2.  IdP posts assertion  Supabase writes auth.identities.identity_data
 3.  trigger fires        → private.user_attributes        (trusted copy)
-                         → private.user_effective_claims  (roles precomputed)
+                          → private.user_effective_claims  (roles precomputed)
 4.  token minted         auth hook reads one row, adds app_roles + dept_codes_array
 5.  app queries          RLS policies call private.user_has_role(...)
 ```
@@ -25,15 +26,31 @@ the user — and roles are computed at write time so the hook stays a single row
 
 ## Install
 
+One-time consumer setup — point npm at GitHub Packages for the `@ucsd` scope:
+
 ```bash
-npm i github:jsmillerucsd/supabase-sso-toolkit#v1.0.0
+# ~/.npmrc  (user-level, so the token is not committed per-project)
+@ucsd:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+`GITHUB_TOKEN` needs `read:packages` (a classic PAT, or a fine-grained token with
+"Packages: Read" on this repo). See [`.npmrc.example`](.npmrc.example) for a template.
+If the repo is public, GitHub still requires the registry line but serves the package
+without a token.
+
+Then in your app:
+
+```bash
+npm i @ucsd/supabase-sso
 supabase migration new sso_install
 ```
 
-Paste in [`sql/install.sql`](sql/install.sql) and apply.
+Paste in [`sql/install.sql`](sql/install.sql) and apply with `supabase db push`.
 
 Then enable SAML, turn on the auth hook, register with the IdP, and allow-list your
-callback URLs — **[full setup](docs/setup.md)**.
+callback URLs — **[full setup](docs/setup.md)**. The SQL is idempotent; re-running a
+newer `install.sql` is how you upgrade.
 
 ## Quick start
 
@@ -101,18 +118,33 @@ Mount `<AuthCallback />` at your callback route.
 ```ts
 // middleware.ts
 import { updateSession } from "@ucsd/supabase-sso/nextjs";
-export const middleware = (req: NextRequest) => updateSession(req, env, config);
+export const middleware = (req: NextRequest) =>
+  updateSession(req, {
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabasePublishableKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  }, { providerId: process.env.SUPABASE_SSO_PROVIDER_ID! });
 
 // app/auth/callback/route.ts
 import { createSsoCallbackHandler } from "@ucsd/supabase-sso/nextjs";
-export const GET = createSsoCallbackHandler(env, config);
+export const GET = createSsoCallbackHandler(
+  {
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabasePublishableKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  },
+  { providerId: process.env.SUPABASE_SSO_PROVIDER_ID! },
+);
 
 // app/page.tsx — server components
 import { getServerAppClaims } from "@ucsd/supabase-sso/nextjs";
-const claims = await getServerAppClaims(await cookies(), env);
+import { cookies } from "next/headers";
+const claims = await getServerAppClaims(await cookies(), {
+  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  supabasePublishableKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+});
 ```
 
-`/react` also works in client components if you want the hooks.
+`supabasePublishableKey` accepts either a modern `sb_publishable_…` key or a legacy
+anon key. `/react` also works in client components if you want the hooks.
 
 ### Config
 
@@ -149,3 +181,15 @@ session and redirects through the IdP, but already-issued JWTs live until they e
 npm run build   # regenerate install.sql, compile TS
 npm test        # pgTAP suite against a local Supabase stack
 ```
+
+### Release
+
+GitHub Packages hosts the package. Bump `version` in `package.json`, then:
+
+```bash
+npm run release   # prepublishOnly builds, then publishes to npm.pkg.github.com
+git tag v1.x.y && git push --tags
+```
+
+Publishing requires a PAT with `write:packages` in `~/.npmrc` under
+`//npm.pkg.github.com/:_authToken`.

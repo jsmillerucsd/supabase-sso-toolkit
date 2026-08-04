@@ -15,14 +15,16 @@ Dashboard → Authentication → Providers → SAML 2.0.
 ## 2. Run the SQL
 
 ```bash
-npm i github:jsmillerucsd/supabase-sso-toolkit#v1.0.0
+npm i @ucsd/supabase-sso
 supabase migration new sso_install
 ```
 
 Paste in [`sql/install.sql`](../sql/install.sql) — shipped at
-`node_modules/@ucsd/supabase-sso/sql/install.sql` — and apply.
+`node_modules/@ucsd/supabase-sso/sql/install.sql` — and apply with `supabase db push`.
 
 The file is idempotent — re-running a newer version is how you upgrade.
+
+One-time npm setup (GitHub Packages) is in the [README](../README.md#install).
 
 ## 3. Enable the auth hook
 

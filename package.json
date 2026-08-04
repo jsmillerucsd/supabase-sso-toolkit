@@ -3,10 +3,19 @@
   "version": "1.0.0",
   "description": "Reusable SAML SSO + RLS toolkit for Supabase projects: attribute projection, role derivation, auth hook, and Next.js/SPA client integration.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jsmillerucsd/supabase-sso-toolkit.git"
+  },
+  "homepage": "https://github.com/jsmillerucsd/supabase-sso-toolkit#readme",
+  "bugs": "https://github.com/jsmillerucsd/supabase-sso-toolkit/issues",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "exports": {
     ".": {
@@ -40,7 +49,8 @@
     "typecheck": "tsc --noEmit",
     "test": "cd dev && supabase db reset && supabase test db",
     "prepublishOnly": "npm run build",
-    "pretest": "npm run build:sql && node scripts/stage-dev-db.mjs"
+    "pretest": "npm run build:sql && node scripts/stage-dev-db.mjs",
+    "release": "npm publish"
   },
   "peerDependencies": {
     "@supabase/ssr": ">=0.5.0",
