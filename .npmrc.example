@@ -1,7 +1,2 @@
-# Consumer setup for @jsmillerucsd/supabase-sso (GitHub Packages).
-#
-# Add this one line to your app's .npmrc. The repo is public, so no PAT or
-# login is required — npm just needs to know which registry serves the scope.
-#
-# Then: npm i @jsmillerucsd/supabase-sso
+# Add this line to your app's .npmrc, then: npm i @jsmillerucsd/supabase-sso
 @jsmillerucsd:registry=https://npm.pkg.github.com

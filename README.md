@@ -1,13 +1,12 @@
 # @jsmillerucsd/supabase-sso
 
-SAML SSO attributes and RLS wiring for Supabase projects.
+SAML SSO attributes and RLS wiring for Supabase projects. Your app registers
+directly with the UCSD Shibboleth IdP; this package takes the attributes that
+arrive and makes them safe to use in RLS policies.
 
-Your app registers directly with the UCSD Shibboleth IdP. This package takes the
-attributes that arrive and makes them safe to use in RLS policies.
-
-Not an app template — no admin UI, no user management, no profile tables. Just the
-plumbing: a `private` schema with attribute and role tables, two sign-in triggers,
-one access-token hook, and the RLS helper functions. No edge functions.
+No app template — no admin UI, no user management, no profile tables. Just the
+plumbing: a `private` schema with attribute and role tables, two sign-in
+triggers, one access-token hook, and RLS helper functions.
 
 ## How it works
 
@@ -20,22 +19,17 @@ one access-token hook, and the RLS helper functions. No edge functions.
 5.  app queries          RLS policies call private.user_has_role(...)
 ```
 
-Steps 3 and 4 are the reason this package exists. Attributes are copied out of
-`auth.identities` — not `raw_user_meta_data`, which is merged key-by-key and writable by
-the user — and roles are computed at write time so the hook stays a single row read.
+Attributes are copied from `auth.identities` — not `raw_user_meta_data`, which
+is merged key-by-key and client-writable — and roles are computed at write time
+so the hook stays a single row read.
 
 ## Install
 
-One-time consumer setup — add one line to your app's `.npmrc` so npm knows where
-to find the `@jsmillerucsd` scope:
+Add one line to your app's `.npmrc`:
 
 ```bash
 @jsmillerucsd:registry=https://npm.pkg.github.com
 ```
-
-No PAT or login needed — the repo is public, so GitHub Packages serves it freely.
-
-Then:
 
 ```bash
 npm i @jsmillerucsd/supabase-sso
@@ -43,10 +37,9 @@ supabase migration new sso_install
 ```
 
 Paste in [`sql/install.sql`](sql/install.sql) and apply with `supabase db push`.
-
-Then enable SAML, turn on the auth hook, register with the IdP, and allow-list your
-callback URLs — **[full setup](docs/setup.md)**. The SQL is idempotent; re-running a
-newer `install.sql` is how you upgrade.
+Then enable SAML, turn on the auth hook, register with the IdP, and allow-list
+your callback URLs — **[full setup](docs/setup.md)**. The SQL is idempotent;
+re-running a newer `install.sql` is how you upgrade.
 
 ## Quick start
 
@@ -60,9 +53,6 @@ create policy "own department" on public.documents for select
   using ( dept_code = any (private.user_dept_codes()) );
 ```
 
-The client differs by framework. SPAs exchange the auth code in the browser; Next.js
-does it server-side and needs middleware to keep the session cookie fresh.
-
 | Framework | Import | You write |
 |---|---|---|
 | Vue, Svelte, Angular, vanilla | `@jsmillerucsd/supabase-sso` | login button, callback page |
@@ -71,14 +61,12 @@ does it server-side and needs middleware to keep the session cookie fresh.
 
 ### Vue, Svelte, or any SPA
 
-Core exports are framework-agnostic. Two pieces:
-
 ```ts
 // login
 import { signInWithSSO } from "@jsmillerucsd/supabase-sso";
 await signInWithSSO(supabase, config);
 
-// /auth/callback — completes sign-in, then redirects home
+// /auth/callback
 import { handleAuthCallback } from "@jsmillerucsd/supabase-sso";
 await handleAuthCallback(supabase, config);
 ```
@@ -87,7 +75,6 @@ Read claims anywhere:
 
 ```ts
 import { getAppClaims, hasRole } from "@jsmillerucsd/supabase-sso";
-
 const claims = await getAppClaims(supabase);
 hasRole(claims, "admin_role");
 ```
@@ -139,8 +126,7 @@ const claims = await getServerAppClaims(await cookies(), {
 });
 ```
 
-`supabasePublishableKey` accepts either a modern `sb_publishable_…` key or a legacy
-anon key. `/react` also works in client components if you want the hooks.
+`/react` also works in Next.js client components.
 
 ### Config
 
@@ -159,17 +145,18 @@ Everything else has a default — see [reference](docs/reference.md#config).
 
 ## Limitations
 
-**AD groups are unreliable.** Supabase truncates `memberOf` to a single group for most
-users ([supabase/auth#2332](https://github.com/supabase/auth/issues/2332)). Group→role
-mapping still works — a short list can only under-grant — but never treat *absence* of
-a group as a permission signal. Check `member_of_status` on
+**AD groups are unreliable.** Supabase truncates `memberOf` to a single group
+for most users ([supabase/auth#2332](https://github.com/supabase/auth/issues/2332)).
+Group→role mapping still works — a short list can only under-grant — but never
+treat *absence* of a group as a permission signal. Check `member_of_status` on
 [`private.user_attributes`](sql/0002_identity_projection.sql).
 
-**`eduPersonAffiliation` is not released.** `user_has_affiliation()` returns false for
-everyone until that changes.
+**`eduPersonAffiliation` is not released.** `user_has_affiliation()` returns
+false for everyone until that changes.
 
-**No Single Logout.** Supabase does not support SAML SLO. Logout clears the local
-session and redirects through the IdP, but already-issued JWTs live until they expire.
+**No Single Logout.** Supabase does not support SAML SLO. Logout clears the
+local session and redirects through the IdP, but already-issued JWTs live until
+they expire.
 
 ## Develop
 
@@ -180,12 +167,11 @@ npm test        # pgTAP suite against a local Supabase stack
 
 ### Release
 
-GitHub Packages hosts the package. Bump `version` in `package.json`, then:
+Bump `version` in `package.json`, then:
 
 ```bash
-npm run release   # prepublishOnly builds, then publishes to npm.pkg.github.com
+npm run release   # build + publish to npm.pkg.github.com
 git tag v1.x.y && git push --tags
 ```
 
-Publishing requires a PAT with `write:packages` in `~/.npmrc` under
-`//npm.pkg.github.com/:_authToken`.
+Publishing requires a PAT with `write:packages` in `~/.npmrc`.
