@@ -71,7 +71,7 @@ GRANT EXECUTE ON FUNCTION public.toolkit_version() TO authenticated;
 CREATE TABLE IF NOT EXISTS private.sync_errors (
   id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id     uuid,          -- intentionally no FK; see header
-  source      text NOT NULL, -- projection_trigger | legacy_trigger | recompute | admin_rpc
+  source      text NOT NULL, -- projection_trigger | recompute | admin_rpc
   detail      text NOT NULL,
   payload     jsonb,
   occurred_at timestamptz NOT NULL DEFAULT now()

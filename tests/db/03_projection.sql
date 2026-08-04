@@ -2,7 +2,7 @@
 -- 03_projection — attribute extraction and the fail-open policy
 -- ==============================================================================
 -- Covers spec tests 08 (wholesale replace), 09 (fail-open), 10 (member_of
--- classification), 11 (display identifier chain), 12 (legacy branch).
+-- classification), 11 (display identifier chain).
 -- ==============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;

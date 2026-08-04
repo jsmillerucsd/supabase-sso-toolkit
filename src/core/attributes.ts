@@ -25,7 +25,7 @@ export interface AttributeSummary {
   member_of_status: MemberOfStatus;
   /** null means the IdP released no affiliation at all, not "none". */
   affiliations: string[] | null;
-  source_kind: "saml" | "legacy_oauth";
+  source_kind: "saml";
   synced_at: string;
 }
 

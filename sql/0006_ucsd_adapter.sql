@@ -5,15 +5,12 @@
 -- that knows about UCSD-specific attributes (dept codes, UCPath emplids, AD
 -- groups, UCnetID). Everything else is campus-agnostic.
 --
--- It works by CREATE OR REPLACEing private.extract_attributes() — the seam that
+-- It works by CREATE OR REPLACEing private.extract_attributes(): the seam that
 -- 0002 defines. Another campus writes its own adapter module and skips this one.
 --
 -- WHERE THE ATTRIBUTES LIVE:
---   SAML branch:   standard keys at the top level of identity_data
---                  (sub, email, name, ...); every UCSD attribute nests under
---                  identity_data.custom_claims. Confirmed against live data.
---   Legacy branch: the retired attribute-sync flattened custom_claims to the top
---                  level of raw_app_meta_data, so there is no nesting to unwrap.
+--   Standard keys at the top level of identity_data (sub, email, name, ...);
+--   every UCSD attribute nests under identity_data.custom_claims.
 --
 -- Depends on: 0002 (0004 optional)
 -- ==============================================================================
@@ -32,15 +29,12 @@ DECLARE
   cc  jsonb;   -- where UCSD attributes live
   src jsonb;   -- where standard keys live
 BEGIN
-  IF p_source_kind = 'saml' THEN
-    cc  := COALESCE(p_payload -> 'custom_claims', '{}'::jsonb);
-    src := COALESCE(p_payload, '{}'::jsonb);
-  ELSIF p_source_kind = 'legacy_oauth' THEN
-    cc  := COALESCE(p_payload, '{}'::jsonb);
-    src := COALESCE(p_payload, '{}'::jsonb);
-  ELSE
+  IF p_source_kind <> 'saml' THEN
     RAISE EXCEPTION 'unknown source_kind %', p_source_kind;
   END IF;
+
+  cc  := COALESCE(p_payload -> 'custom_claims', '{}'::jsonb);
+  src := COALESCE(p_payload, '{}'::jsonb);
 
   r.subject_id  := src ->> 'sub';
   r.eppn        := NULLIF(cc ->> 'eppn', '');
@@ -103,24 +97,6 @@ BEGIN
     EXCEPTION WHEN OTHERS THEN
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
       VALUES (r.user_id, 'projection_trigger', 'ucsd adapter reproject: ' || SQLERRM, r.identity_data);
-    END;
-  END LOOP;
-
-  FOR r IN
-    SELECT u.id AS user_id, u.raw_app_meta_data
-    FROM auth.users u
-    WHERE COALESCE(u.is_sso_user, false) = false
-      AND u.raw_app_meta_data ->> 'provider' = 'custom:ucsd-sso'
-      AND NOT EXISTS (
-        SELECT 1 FROM private.user_attributes ua
-        WHERE ua.user_id = u.id AND ua.source_kind = 'saml'
-      )
-  LOOP
-    BEGIN
-      PERFORM private.project_user_attributes(r.user_id, 'legacy_oauth', r.raw_app_meta_data);
-    EXCEPTION WHEN OTHERS THEN
-      INSERT INTO private.sync_errors (user_id, source, detail, payload)
-      VALUES (r.user_id, 'legacy_trigger', 'ucsd adapter reproject: ' || SQLERRM, r.raw_app_meta_data);
     END;
   END LOOP;
 END;

@@ -56,39 +56,6 @@ BEGIN
 END;
 $$;
 
--- A user provisioned by the retired central-auth OAuth server.
-CREATE OR REPLACE FUNCTION sso_test.make_legacy_user(
-  p_user_id uuid,
-  p_email   text DEFAULT 'legacy@ucsd.edu',
-  p_attrs   jsonb DEFAULT NULL
-)
-RETURNS uuid
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  attrs jsonb;
-BEGIN
-  -- The legacy sync flattened custom_claims to the top level of app_metadata.
-  attrs := COALESCE(p_attrs, jsonb_build_object(
-    'eppn', p_email, 'ad_username', split_part(p_email, '@', 1),
-    'mail', p_email, 'full_name', 'LEGACY, USER',
-    'home_dept_code', '0578', 'dept_codes', '0578', 'ucpath_emplid', '10099999'
-  )) || jsonb_build_object('provider', 'custom:ucsd-sso', 'providers', jsonb_build_array('custom:ucsd-sso'));
-
-  INSERT INTO auth.users (
-    id, instance_id, aud, role, email, is_sso_user,
-    raw_app_meta_data, raw_user_meta_data, created_at, updated_at
-  )
-  VALUES (
-    p_user_id, '00000000-0000-0000-0000-000000000000',
-    'authenticated', 'authenticated', p_email, false,
-    attrs, '{}'::jsonb, now(), now()
-  );
-
-  RETURN p_user_id;
-END;
-$$;
-
 -- Build a hook event with every required claim present.
 CREATE OR REPLACE FUNCTION sso_test.hook_event(
   p_user_id       uuid,

@@ -46,8 +46,7 @@ schema is touched.
 
 | Trigger | On | Does |
 |---|---|---|
-| `on_sso_identity_projected` | `auth.identities` (SAML) | Projects attributes into `private.user_attributes` |
-| `on_legacy_user_projected` | `auth.users` (legacy OAuth) | Same, for the retired central-auth flow |
+| `on_sso_identity_projected` | `auth.identities` | Projects SAML attributes into `private.user_attributes` |
 | `on_*_changed` (4) | `private.*_role_mappings`, `private.user_roles` | Recomputes affected users' claims |
 
 **Functions**

@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @jsmillerucsd/supabase-sso v1.0.2 — install
+-- @jsmillerucsd/supabase-sso v1.0.3 — install
 -- ==============================================================================
 -- GENERATED FILE. Edit the modules in sql/ and run `npm run build:sql`.
 --
@@ -95,7 +95,7 @@ GRANT EXECUTE ON FUNCTION public.toolkit_version() TO authenticated;
 CREATE TABLE IF NOT EXISTS private.sync_errors (
   id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id     uuid,          -- intentionally no FK; see header
-  source      text NOT NULL, -- projection_trigger | legacy_trigger | recompute | admin_rpc
+  source      text NOT NULL, -- projection_trigger | recompute | admin_rpc
   detail      text NOT NULL,
   payload     jsonb,
   occurred_at timestamptz NOT NULL DEFAULT now()
@@ -147,10 +147,10 @@ SELECT private.register_module('0001_core', '1.0.0');
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS private.user_attributes (
   user_id            uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  source_kind        text NOT NULL CHECK (source_kind IN ('saml', 'legacy_oauth')),
+  source_kind        text NOT NULL DEFAULT 'saml' CHECK (source_kind = 'saml'),
 
   -- identity_data.sub verbatim (the SAML NameID). Stored for correlation and
-  -- audit only. NEVER a join key, uniqueness constraint, or display value — the
+  -- audit only. NEVER a join key, uniqueness constraint, or display value: the
   -- campus IdP is moving from email to a 32-char opaque value and this column
   -- must be allowed to change shape without consequence.
   subject_id         text,
@@ -386,7 +386,7 @@ DECLARE
   r  private.user_attributes;
   cc jsonb;
 BEGIN
-  IF p_source_kind NOT IN ('saml', 'legacy_oauth') THEN
+  IF p_source_kind <> 'saml' THEN
     RAISE EXCEPTION 'unknown source_kind %', p_source_kind;
   END IF;
 
@@ -565,49 +565,6 @@ CREATE TRIGGER on_sso_identity_projected
   EXECUTE FUNCTION private.on_identity_change();
 
 -- ------------------------------------------------------------------------------
--- Triggers — legacy OAuth branch on auth.users
--- ------------------------------------------------------------------------------
--- Transition support only. Users provisioned by the retired central-auth OAuth
--- server carry their attributes in raw_app_meta_data (admin-written, NOT
--- client-writable — unlike raw_user_meta_data, which we never read).
---
--- Branch on provider; do NOT COALESCE the two shapes into one expression. A
--- COALESCE would let a legacy user's leftover app_metadata keys shadow fresh
--- SAML values after they migrate.
-CREATE OR REPLACE FUNCTION private.on_legacy_user_change()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-BEGIN
-  IF COALESCE(NEW.is_sso_user, false) = false
-     AND NEW.raw_app_meta_data ->> 'provider' = 'custom:ucsd-sso' THEN
-    BEGIN
-      -- Never downgrade a user who has already migrated to SAML.
-      IF NOT EXISTS (
-        SELECT 1 FROM private.user_attributes ua
-        WHERE ua.user_id = NEW.id AND ua.source_kind = 'saml'
-      ) THEN
-        PERFORM private.project_user_attributes(NEW.id, 'legacy_oauth', NEW.raw_app_meta_data);
-      END IF;
-    EXCEPTION WHEN OTHERS THEN
-      INSERT INTO private.sync_errors (user_id, source, detail, payload)
-      VALUES (NEW.id, 'legacy_trigger', SQLERRM, NEW.raw_app_meta_data);
-      UPDATE private.user_attributes SET synced_at = now() WHERE user_id = NEW.id;
-    END;
-  END IF;
-  RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS on_legacy_user_projected ON auth.users;
-CREATE TRIGGER on_legacy_user_projected
-  AFTER INSERT OR UPDATE OF raw_app_meta_data ON auth.users
-  FOR EACH ROW
-  EXECUTE FUNCTION private.on_legacy_user_change();
-
--- ------------------------------------------------------------------------------
 -- Backfill — safe on a fresh schema, safe to re-run
 -- ------------------------------------------------------------------------------
 DO $$
@@ -624,24 +581,6 @@ BEGIN
     EXCEPTION WHEN OTHERS THEN
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
       VALUES (r.user_id, 'projection_trigger', 'backfill: ' || SQLERRM, r.identity_data);
-    END;
-  END LOOP;
-
-  FOR r IN
-    SELECT u.id AS user_id, u.raw_app_meta_data
-    FROM auth.users u
-    WHERE COALESCE(u.is_sso_user, false) = false
-      AND u.raw_app_meta_data ->> 'provider' = 'custom:ucsd-sso'
-      AND NOT EXISTS (
-        SELECT 1 FROM private.user_attributes ua
-        WHERE ua.user_id = u.id AND ua.source_kind = 'saml'
-      )
-  LOOP
-    BEGIN
-      PERFORM private.project_user_attributes(r.user_id, 'legacy_oauth', r.raw_app_meta_data);
-    EXCEPTION WHEN OTHERS THEN
-      INSERT INTO private.sync_errors (user_id, source, detail, payload)
-      VALUES (r.user_id, 'legacy_trigger', 'backfill: ' || SQLERRM, r.raw_app_meta_data);
     END;
   END LOOP;
 END;
@@ -1264,15 +1203,12 @@ SELECT private.register_module('0005_auth_hook', '1.0.0');
 -- that knows about UCSD-specific attributes (dept codes, UCPath emplids, AD
 -- groups, UCnetID). Everything else is campus-agnostic.
 --
--- It works by CREATE OR REPLACEing private.extract_attributes() — the seam that
+-- It works by CREATE OR REPLACEing private.extract_attributes(): the seam that
 -- 0002 defines. Another campus writes its own adapter module and skips this one.
 --
 -- WHERE THE ATTRIBUTES LIVE:
---   SAML branch:   standard keys at the top level of identity_data
---                  (sub, email, name, ...); every UCSD attribute nests under
---                  identity_data.custom_claims. Confirmed against live data.
---   Legacy branch: the retired attribute-sync flattened custom_claims to the top
---                  level of raw_app_meta_data, so there is no nesting to unwrap.
+--   Standard keys at the top level of identity_data (sub, email, name, ...);
+--   every UCSD attribute nests under identity_data.custom_claims.
 --
 -- Depends on: 0002 (0004 optional)
 -- ==============================================================================
@@ -1291,15 +1227,12 @@ DECLARE
   cc  jsonb;   -- where UCSD attributes live
   src jsonb;   -- where standard keys live
 BEGIN
-  IF p_source_kind = 'saml' THEN
-    cc  := COALESCE(p_payload -> 'custom_claims', '{}'::jsonb);
-    src := COALESCE(p_payload, '{}'::jsonb);
-  ELSIF p_source_kind = 'legacy_oauth' THEN
-    cc  := COALESCE(p_payload, '{}'::jsonb);
-    src := COALESCE(p_payload, '{}'::jsonb);
-  ELSE
+  IF p_source_kind <> 'saml' THEN
     RAISE EXCEPTION 'unknown source_kind %', p_source_kind;
   END IF;
+
+  cc  := COALESCE(p_payload -> 'custom_claims', '{}'::jsonb);
+  src := COALESCE(p_payload, '{}'::jsonb);
 
   r.subject_id  := src ->> 'sub';
   r.eppn        := NULLIF(cc ->> 'eppn', '');
@@ -1362,24 +1295,6 @@ BEGIN
     EXCEPTION WHEN OTHERS THEN
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
       VALUES (r.user_id, 'projection_trigger', 'ucsd adapter reproject: ' || SQLERRM, r.identity_data);
-    END;
-  END LOOP;
-
-  FOR r IN
-    SELECT u.id AS user_id, u.raw_app_meta_data
-    FROM auth.users u
-    WHERE COALESCE(u.is_sso_user, false) = false
-      AND u.raw_app_meta_data ->> 'provider' = 'custom:ucsd-sso'
-      AND NOT EXISTS (
-        SELECT 1 FROM private.user_attributes ua
-        WHERE ua.user_id = u.id AND ua.source_kind = 'saml'
-      )
-  LOOP
-    BEGIN
-      PERFORM private.project_user_attributes(r.user_id, 'legacy_oauth', r.raw_app_meta_data);
-    EXCEPTION WHEN OTHERS THEN
-      INSERT INTO private.sync_errors (user_id, source, detail, payload)
-      VALUES (r.user_id, 'legacy_trigger', 'ucsd adapter reproject: ' || SQLERRM, r.raw_app_meta_data);
     END;
   END LOOP;
 END;

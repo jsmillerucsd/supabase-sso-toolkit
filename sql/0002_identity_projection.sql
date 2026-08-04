@@ -19,10 +19,10 @@
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS private.user_attributes (
   user_id            uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  source_kind        text NOT NULL CHECK (source_kind IN ('saml', 'legacy_oauth')),
+  source_kind        text NOT NULL DEFAULT 'saml' CHECK (source_kind = 'saml'),
 
   -- identity_data.sub verbatim (the SAML NameID). Stored for correlation and
-  -- audit only. NEVER a join key, uniqueness constraint, or display value — the
+  -- audit only. NEVER a join key, uniqueness constraint, or display value: the
   -- campus IdP is moving from email to a 32-char opaque value and this column
   -- must be allowed to change shape without consequence.
   subject_id         text,
@@ -258,7 +258,7 @@ DECLARE
   r  private.user_attributes;
   cc jsonb;
 BEGIN
-  IF p_source_kind NOT IN ('saml', 'legacy_oauth') THEN
+  IF p_source_kind <> 'saml' THEN
     RAISE EXCEPTION 'unknown source_kind %', p_source_kind;
   END IF;
 
@@ -437,49 +437,6 @@ CREATE TRIGGER on_sso_identity_projected
   EXECUTE FUNCTION private.on_identity_change();
 
 -- ------------------------------------------------------------------------------
--- Triggers — legacy OAuth branch on auth.users
--- ------------------------------------------------------------------------------
--- Transition support only. Users provisioned by the retired central-auth OAuth
--- server carry their attributes in raw_app_meta_data (admin-written, NOT
--- client-writable — unlike raw_user_meta_data, which we never read).
---
--- Branch on provider; do NOT COALESCE the two shapes into one expression. A
--- COALESCE would let a legacy user's leftover app_metadata keys shadow fresh
--- SAML values after they migrate.
-CREATE OR REPLACE FUNCTION private.on_legacy_user_change()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-BEGIN
-  IF COALESCE(NEW.is_sso_user, false) = false
-     AND NEW.raw_app_meta_data ->> 'provider' = 'custom:ucsd-sso' THEN
-    BEGIN
-      -- Never downgrade a user who has already migrated to SAML.
-      IF NOT EXISTS (
-        SELECT 1 FROM private.user_attributes ua
-        WHERE ua.user_id = NEW.id AND ua.source_kind = 'saml'
-      ) THEN
-        PERFORM private.project_user_attributes(NEW.id, 'legacy_oauth', NEW.raw_app_meta_data);
-      END IF;
-    EXCEPTION WHEN OTHERS THEN
-      INSERT INTO private.sync_errors (user_id, source, detail, payload)
-      VALUES (NEW.id, 'legacy_trigger', SQLERRM, NEW.raw_app_meta_data);
-      UPDATE private.user_attributes SET synced_at = now() WHERE user_id = NEW.id;
-    END;
-  END IF;
-  RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS on_legacy_user_projected ON auth.users;
-CREATE TRIGGER on_legacy_user_projected
-  AFTER INSERT OR UPDATE OF raw_app_meta_data ON auth.users
-  FOR EACH ROW
-  EXECUTE FUNCTION private.on_legacy_user_change();
-
--- ------------------------------------------------------------------------------
 -- Backfill — safe on a fresh schema, safe to re-run
 -- ------------------------------------------------------------------------------
 DO $$
@@ -496,24 +453,6 @@ BEGIN
     EXCEPTION WHEN OTHERS THEN
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
       VALUES (r.user_id, 'projection_trigger', 'backfill: ' || SQLERRM, r.identity_data);
-    END;
-  END LOOP;
-
-  FOR r IN
-    SELECT u.id AS user_id, u.raw_app_meta_data
-    FROM auth.users u
-    WHERE COALESCE(u.is_sso_user, false) = false
-      AND u.raw_app_meta_data ->> 'provider' = 'custom:ucsd-sso'
-      AND NOT EXISTS (
-        SELECT 1 FROM private.user_attributes ua
-        WHERE ua.user_id = u.id AND ua.source_kind = 'saml'
-      )
-  LOOP
-    BEGIN
-      PERFORM private.project_user_attributes(r.user_id, 'legacy_oauth', r.raw_app_meta_data);
-    EXCEPTION WHEN OTHERS THEN
-      INSERT INTO private.sync_errors (user_id, source, detail, payload)
-      VALUES (r.user_id, 'legacy_trigger', 'backfill: ' || SQLERRM, r.raw_app_meta_data);
     END;
   END LOOP;
 END;

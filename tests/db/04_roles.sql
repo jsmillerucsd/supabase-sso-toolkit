@@ -1,12 +1,12 @@
 -- ==============================================================================
--- 04_roles_and_legacy — role derivation and the transition branch
+-- 04_roles — role derivation
 -- ==============================================================================
--- Covers spec tests 12 (legacy branch), 13 (four-source union), 14 (mapping
--- change recomputes), 15 (AD groups additive-only under truncation).
+-- Covers spec tests 13 (four-source union), 14 (mapping change recomputes),
+-- 15 (AD groups additive-only under truncation).
 -- ==============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(13);
+SELECT plan(11);
 
 INSERT INTO private.app_roles (role, description) VALUES
   ('reader_role', 'test'), ('dept_role', 'test'), ('emplid_role', 'test')
@@ -97,60 +97,20 @@ SELECT ok(
 );
 
 -- ------------------------------------------------------------------------------
--- Spec 12: legacy OAuth branch, and the flip to SAML on migration
+-- source_kind is always 'saml'
 -- ------------------------------------------------------------------------------
-SELECT sso_test.make_legacy_user('44444444-4444-4444-4444-444444444444', 'legacy@ucsd.edu');
-
 SELECT is(
   (SELECT source_kind FROM private.user_attributes
-    WHERE user_id = '44444444-4444-4444-4444-444444444444'),
-  'legacy_oauth',
-  'legacy: user provisioned by the old OAuth server is projected'
-);
-
-SELECT is(
-  (SELECT home_dept_code FROM private.user_attributes
-    WHERE user_id = '44444444-4444-4444-4444-444444444444'),
-  '578',
-  'legacy: attributes read from raw_app_meta_data (flat, no custom_claims nesting)'
-);
-
-SELECT is(
-  (SELECT ucpath_emplid FROM private.user_attributes
-    WHERE user_id = '44444444-4444-4444-4444-444444444444'),
-  '10099999',
-  'legacy: emplid extracted from the legacy shape'
-);
-
--- Same human signs in through direct SAML for the first time.
-INSERT INTO auth.identities (id, user_id, provider_id, provider, identity_data, created_at, updated_at, last_sign_in_at)
-VALUES (gen_random_uuid(), '44444444-4444-4444-4444-444444444444', 'legacy@ucsd.edu',
-        'sso:f063d234-1eac-425c-846c-833176a050c7',
-        jsonb_build_object('sub', 'opaque-32-char-id', 'email', 'legacy@ucsd.edu',
-          'custom_claims', jsonb_build_object(
-            'eppn', 'legacy@ucsd.edu', 'ad_username', 'legacy',
-            'home_dept_code', '0111', 'ucpath_emplid', '10099999')),
-        now(), now(), now());
-
-SELECT is(
-  (SELECT source_kind FROM private.user_attributes
-    WHERE user_id = '44444444-4444-4444-4444-444444444444'),
+    WHERE user_id = '11111111-1111-1111-1111-111111111111'),
   'saml',
-  'legacy: source_kind flips to saml once a SAML identity exists'
+  'projection: source_kind is saml'
 );
 
 SELECT is(
-  (SELECT home_dept_code FROM private.user_attributes
-    WHERE user_id = '44444444-4444-4444-4444-444444444444'),
-  '111',
-  'legacy: SAML values win outright — no COALESCE shadowing from the old shape'
-);
-
-SELECT is(
-  (SELECT subject_id FROM private.user_attributes
-    WHERE user_id = '44444444-4444-4444-4444-444444444444'),
-  'opaque-32-char-id',
-  'legacy: an opaque NameID is stored verbatim and changes nothing else'
+  (SELECT source_kind FROM private.user_attributes
+    WHERE user_id = '22222222-2222-2222-2222-222222222222'),
+  'saml',
+  'projection: source_kind is saml for every projected user'
 );
 
 SELECT * FROM finish();
