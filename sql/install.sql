@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @ucsd/supabase-sso v1.0.0 — install
+-- @ucsd/supabase-sso v1.0.1 — install
 -- ==============================================================================
 -- GENERATED FILE. Edit the modules in sql/ and run `npm run build:sql`.
 --
