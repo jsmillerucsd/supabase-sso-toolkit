@@ -26,20 +26,16 @@ the user — and roles are computed at write time so the hook stays a single row
 
 ## Install
 
-One-time consumer setup — point npm at GitHub Packages for the `@ucsd` scope:
+One-time consumer setup — add one line to your app's `.npmrc` so npm knows where
+to find the `@jsmillerucsd` scope:
 
 ```bash
-# ~/.npmrc  (user-level, so the token is not committed per-project)
-@ucsd:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+@jsmillerucsd:registry=https://npm.pkg.github.com
 ```
 
-`GITHUB_TOKEN` needs `read:packages` (a classic PAT, or a fine-grained token with
-"Packages: Read" on this repo). See [`.npmrc.example`](.npmrc.example) for a template.
-If the repo is public, GitHub still requires the registry line but serves the package
-without a token.
+No PAT or login needed — the repo is public, so GitHub Packages serves it freely.
 
-Then in your app:
+Then:
 
 ```bash
 npm i @jsmillerucsd/supabase-sso

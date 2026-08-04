@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @jsmillerucsd/supabase-sso v1.0.1 — install
+-- @jsmillerucsd/supabase-sso v1.0.2 — install
 -- ==============================================================================
 -- GENERATED FILE. Edit the modules in sql/ and run `npm run build:sql`.
 --
