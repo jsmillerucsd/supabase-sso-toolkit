@@ -1,12 +1,12 @@
 # @jsmillerucsd/supabase-sso
 
-SAML SSO attributes and RLS wiring for Supabase projects. Your app registers
-directly with the UCSD Shibboleth IdP; this package takes the attributes that
-arrive and makes them safe to use in RLS policies.
+SAML SSO attribute projection and RLS wiring for Supabase projects at UCSD.
+Connects your Supabase app to the campus Shibboleth IdP, copies SAML attributes
+into a trusted `private` schema on every sign-in, and exposes role/department
+helpers for RLS policies. Ships a Next.js/SPA client for sign-in, callback, and
+claims reading.
 
-No app template — no admin UI, no user management, no profile tables. Just the
-plumbing: a `private` schema with attribute and role tables, two sign-in
-triggers, one access-token hook, and RLS helper functions.
+Not an app template — no admin UI, no user management, no profile tables.
 
 ## How it works
 
@@ -41,9 +41,7 @@ Then enable SAML, turn on the auth hook, register with the IdP, and allow-list
 your callback URLs — **[full setup](docs/setup.md)**. The SQL is idempotent;
 re-running a newer `install.sql` is how you upgrade.
 
-## Quick start
-
-RLS policies are the same everywhere:
+## RLS policies
 
 ```sql
 create policy "admins read all" on public.documents for select
@@ -53,13 +51,15 @@ create policy "own department" on public.documents for select
   using ( dept_code = any (private.user_dept_codes()) );
 ```
 
+## Client integration
+
 | Framework | Import | You write |
 |---|---|---|
 | Vue, Svelte, Angular, vanilla | `@jsmillerucsd/supabase-sso` | login button, callback page |
 | React SPA | `+ /react` | same, wrapped in `<SsoProvider>` |
 | Next.js App Router | `+ /nextjs` | `middleware.ts`, callback route |
 
-### Vue, Svelte, or any SPA
+### Any SPA
 
 ```ts
 // login
@@ -69,19 +69,14 @@ await signInWithSSO(supabase, config);
 // /auth/callback
 import { handleAuthCallback } from "@jsmillerucsd/supabase-sso";
 await handleAuthCallback(supabase, config);
-```
 
-Read claims anywhere:
-
-```ts
+// read claims
 import { getAppClaims, hasRole } from "@jsmillerucsd/supabase-sso";
 const claims = await getAppClaims(supabase);
 hasRole(claims, "admin_role");
 ```
 
-### React SPA
-
-Same as above, plus a provider and hooks:
+### React
 
 ```tsx
 import { SsoProvider, useSso, useHasRole, AuthCallback } from "@jsmillerucsd/supabase-sso/react";
@@ -125,8 +120,6 @@ const claims = await getServerAppClaims(await cookies(), {
   supabasePublishableKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
 });
 ```
-
-`/react` also works in Next.js client components.
 
 ### Config
 
