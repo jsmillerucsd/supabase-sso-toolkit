@@ -6,7 +6,7 @@
 -- ==============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(11);
+SELECT plan(9);
 
 INSERT INTO private.app_roles (role, description) VALUES
   ('reader_role', 'test'), ('dept_role', 'test'), ('emplid_role', 'test')
