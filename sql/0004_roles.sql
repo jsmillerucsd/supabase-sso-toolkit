@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @ucsd/supabase-sso — 0004_roles  [OPTIONAL MODULE]
+-- @jsmillerucsd/supabase-sso — 0004_roles  [OPTIONAL MODULE]
 -- ==============================================================================
 -- Role definitions and the four grant sources that feed `app_roles`:
 --   1. manual grants           private.user_roles

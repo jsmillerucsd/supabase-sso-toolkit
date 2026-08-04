@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @ucsd/supabase-sso — 0005_auth_hook
+-- @jsmillerucsd/supabase-sso — 0005_auth_hook
 -- ==============================================================================
 -- Custom access token hook. Runs on every token mint and refresh.
 --

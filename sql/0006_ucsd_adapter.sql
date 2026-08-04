@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @ucsd/supabase-sso — 0006_ucsd_adapter  [OPTIONAL CAMPUS ADAPTER]
+-- @jsmillerucsd/supabase-sso — 0006_ucsd_adapter  [OPTIONAL CAMPUS ADAPTER]
 -- ==============================================================================
 -- UCSD Shibboleth attribute extraction. This is the ONLY file in the toolkit
 -- that knows about UCSD-specific attributes (dept codes, UCPath emplids, AD

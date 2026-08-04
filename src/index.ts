@@ -1,5 +1,5 @@
 /**
- * @ucsd/supabase-sso — SAML SSO attribute + RLS wiring for Supabase projects.
+ * @jsmillerucsd/supabase-sso — SAML SSO attribute + RLS wiring for Supabase projects.
  *
  * Isomorphic core. Framework entry points live at `/nextjs` and `/react`.
  */

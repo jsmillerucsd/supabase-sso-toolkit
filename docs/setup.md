@@ -15,12 +15,12 @@ Dashboard → Authentication → Providers → SAML 2.0.
 ## 2. Run the SQL
 
 ```bash
-npm i @ucsd/supabase-sso
+npm i @jsmillerucsd/supabase-sso
 supabase migration new sso_install
 ```
 
 Paste in [`sql/install.sql`](../sql/install.sql) — shipped at
-`node_modules/@ucsd/supabase-sso/sql/install.sql` — and apply with `supabase db push`.
+`node_modules/@jsmillerucsd/supabase-sso/sql/install.sql` — and apply with `supabase db push`.
 
 The file is idempotent — re-running a newer version is how you upgrade.
 
@@ -58,7 +58,7 @@ Once they confirm, add the connection:
 supabase sso add --type saml --project-ref <ref> \
   --metadata-url '<idp-metadata-url>' \
   --domains ucsd.edu \
-  --attribute-mapping-file node_modules/@ucsd/supabase-sso/sql/assets/ucsd-attribute-mapping.json
+  --attribute-mapping-file node_modules/@jsmillerucsd/supabase-sso/sql/assets/ucsd-attribute-mapping.json
 ```
 
 The staging IdP metadata is `https://a5.ucsd.edu/a5-stage-metadata-sscert3072.xml`.

@@ -1,4 +1,4 @@
-# Consumer setup for @ucsd/supabase-sso (GitHub Packages).
+# Consumer setup for @jsmillerucsd/supabase-sso (GitHub Packages).
 #
 # 1. Copy this file to ~/.npmrc (user-level) or your project's .npmrc.
 # 2. Create a Personal Access Token at:
@@ -9,5 +9,5 @@
 #
 # If the repo is public, GitHub Packages still requires this registry line but
 # will serve the package without a token.
-@ucsd:registry=https://npm.pkg.github.com
+@jsmillerucsd:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}

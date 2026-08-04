@@ -17,7 +17,7 @@ const modules = readdirSync(SQL_DIR)
 const version = JSON.parse(readFileSync("package.json", "utf8")).version;
 
 const header = `-- ==============================================================================
--- @ucsd/supabase-sso v${version} — install
+-- @jsmillerucsd/supabase-sso v${version} — install
 -- ==============================================================================
 -- GENERATED FILE. Edit the modules in sql/ and run \`npm run build:sql\`.
 --

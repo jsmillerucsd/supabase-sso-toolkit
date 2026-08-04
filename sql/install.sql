@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @ucsd/supabase-sso v1.0.1 — install
+-- @jsmillerucsd/supabase-sso v1.0.1 — install
 -- ==============================================================================
 -- GENERATED FILE. Edit the modules in sql/ and run `npm run build:sql`.
 --
@@ -23,7 +23,7 @@
 -- ==============================================================================
 
 -- ==============================================================================
--- @ucsd/supabase-sso — 0001_core
+-- @jsmillerucsd/supabase-sso — 0001_core
 -- ==============================================================================
 -- Private schema, baseline grants, module registry, error log.
 --
@@ -127,7 +127,7 @@ SELECT private.register_module('0001_core', '1.0.0');
 
 
 -- ==============================================================================
--- @ucsd/supabase-sso — 0002_identity_projection        (depends on: 0001)
+-- @jsmillerucsd/supabase-sso — 0002_identity_projection        (depends on: 0001)
 -- ==============================================================================
 -- The trust boundary: SAML attributes are copied from `auth.identities` into
 -- `private.user_attributes` on every sign-in. Everything downstream reads only
@@ -651,7 +651,7 @@ SELECT private.register_module('0002_identity_projection', '1.0.0');
 
 
 -- ==============================================================================
--- @ucsd/supabase-sso — 0003_rls_helpers
+-- @jsmillerucsd/supabase-sso — 0003_rls_helpers
 -- ==============================================================================
 -- Helper functions for RLS policies and application code.
 --
@@ -906,7 +906,7 @@ SELECT private.register_module('0003_rls_helpers', '1.0.0');
 
 
 -- ==============================================================================
--- @ucsd/supabase-sso — 0004_roles  [OPTIONAL MODULE]
+-- @jsmillerucsd/supabase-sso — 0004_roles  [OPTIONAL MODULE]
 -- ==============================================================================
 -- Role definitions and the four grant sources that feed `app_roles`:
 --   1. manual grants           private.user_roles
@@ -1138,7 +1138,7 @@ SELECT private.register_module('0004_roles', '1.0.0');
 
 
 -- ==============================================================================
--- @ucsd/supabase-sso — 0005_auth_hook
+-- @jsmillerucsd/supabase-sso — 0005_auth_hook
 -- ==============================================================================
 -- Custom access token hook. Runs on every token mint and refresh.
 --
@@ -1258,7 +1258,7 @@ SELECT private.register_module('0005_auth_hook', '1.0.0');
 
 
 -- ==============================================================================
--- @ucsd/supabase-sso — 0006_ucsd_adapter  [OPTIONAL CAMPUS ADAPTER]
+-- @jsmillerucsd/supabase-sso — 0006_ucsd_adapter  [OPTIONAL CAMPUS ADAPTER]
 -- ==============================================================================
 -- UCSD Shibboleth attribute extraction. This is the ONLY file in the toolkit
 -- that knows about UCSD-specific attributes (dept codes, UCPath emplids, AD

@@ -1,5 +1,5 @@
 -- ==============================================================================
--- Test fixtures — shared helpers for the @ucsd/supabase-sso pgTAP suite.
+-- Test fixtures — shared helpers for the @jsmillerucsd/supabase-sso pgTAP suite.
 -- ==============================================================================
 -- Applied as a migration in the toolkit's own dev project (and copied into
 -- consuming apps by `install-sql --with-tests`). Creates nothing outside the

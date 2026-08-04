@@ -30,16 +30,16 @@ import {
   hasRole, hasAnyRole, hasDeptCode, requireRole,
   getMyAttributes, getMyAdGroups,
   resolveConfig, SsoAuthError,
-} from "@ucsd/supabase-sso";
+} from "@jsmillerucsd/supabase-sso";
 
 import {
   updateSession, createSsoCallbackHandler,
   getServerAppClaims, createLogoutHandler,
-} from "@ucsd/supabase-sso/nextjs";
+} from "@jsmillerucsd/supabase-sso/nextjs";
 
 import {
   SsoProvider, useSso, useAppClaims, useHasRole, AuthCallback,
-} from "@ucsd/supabase-sso/react";
+} from "@jsmillerucsd/supabase-sso/react";
 ```
 
 ### Config

@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @ucsd/supabase-sso — 0001_core
+-- @jsmillerucsd/supabase-sso — 0001_core
 -- ==============================================================================
 -- Private schema, baseline grants, module registry, error log.
 --

@@ -1,5 +1,5 @@
 {
-  "name": "@ucsd/supabase-sso",
+  "name": "@jsmillerucsd/supabase-sso",
   "version": "1.0.1",
   "description": "Reusable SAML SSO + RLS toolkit for Supabase projects: attribute projection, role derivation, auth hook, and Next.js/SPA client integration.",
   "license": "MIT",

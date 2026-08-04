@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 // Prepend `"use client"` to the react entry's runtime outputs. tsup strips the
 // source-level directive when bundling, which would make Next.js App Router
-// treat `@ucsd/supabase-sso/react` as a Server Component and fail on import.
+// treat `@jsmillerucsd/supabase-sso/react` as a Server Component and fail on import.
 function prependUseClient() {
   for (const f of ["dist/react.js", "dist/react.cjs"]) {
     const before = readFileSync(f, "utf8");

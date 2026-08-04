@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @ucsd/supabase-sso — 0003_rls_helpers
+-- @jsmillerucsd/supabase-sso — 0003_rls_helpers
 -- ==============================================================================
 -- Helper functions for RLS policies and application code.
 --

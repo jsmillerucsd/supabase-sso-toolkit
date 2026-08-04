@@ -1,4 +1,4 @@
-# @ucsd/supabase-sso
+# @jsmillerucsd/supabase-sso
 
 SAML SSO attributes and RLS wiring for Supabase projects.
 
@@ -42,7 +42,7 @@ without a token.
 Then in your app:
 
 ```bash
-npm i @ucsd/supabase-sso
+npm i @jsmillerucsd/supabase-sso
 supabase migration new sso_install
 ```
 
@@ -69,7 +69,7 @@ does it server-side and needs middleware to keep the session cookie fresh.
 
 | Framework | Import | You write |
 |---|---|---|
-| Vue, Svelte, Angular, vanilla | `@ucsd/supabase-sso` | login button, callback page |
+| Vue, Svelte, Angular, vanilla | `@jsmillerucsd/supabase-sso` | login button, callback page |
 | React SPA | `+ /react` | same, wrapped in `<SsoProvider>` |
 | Next.js App Router | `+ /nextjs` | `middleware.ts`, callback route |
 
@@ -79,18 +79,18 @@ Core exports are framework-agnostic. Two pieces:
 
 ```ts
 // login
-import { signInWithSSO } from "@ucsd/supabase-sso";
+import { signInWithSSO } from "@jsmillerucsd/supabase-sso";
 await signInWithSSO(supabase, config);
 
 // /auth/callback — completes sign-in, then redirects home
-import { handleAuthCallback } from "@ucsd/supabase-sso";
+import { handleAuthCallback } from "@jsmillerucsd/supabase-sso";
 await handleAuthCallback(supabase, config);
 ```
 
 Read claims anywhere:
 
 ```ts
-import { getAppClaims, hasRole } from "@ucsd/supabase-sso";
+import { getAppClaims, hasRole } from "@jsmillerucsd/supabase-sso";
 
 const claims = await getAppClaims(supabase);
 hasRole(claims, "admin_role");
@@ -101,7 +101,7 @@ hasRole(claims, "admin_role");
 Same as above, plus a provider and hooks:
 
 ```tsx
-import { SsoProvider, useSso, useHasRole, AuthCallback } from "@ucsd/supabase-sso/react";
+import { SsoProvider, useSso, useHasRole, AuthCallback } from "@jsmillerucsd/supabase-sso/react";
 
 <SsoProvider supabase={supabase} config={config}>
   <App />
@@ -117,7 +117,7 @@ Mount `<AuthCallback />` at your callback route.
 
 ```ts
 // middleware.ts
-import { updateSession } from "@ucsd/supabase-sso/nextjs";
+import { updateSession } from "@jsmillerucsd/supabase-sso/nextjs";
 export const middleware = (req: NextRequest) =>
   updateSession(req, {
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -125,7 +125,7 @@ export const middleware = (req: NextRequest) =>
   }, { providerId: process.env.SUPABASE_SSO_PROVIDER_ID! });
 
 // app/auth/callback/route.ts
-import { createSsoCallbackHandler } from "@ucsd/supabase-sso/nextjs";
+import { createSsoCallbackHandler } from "@jsmillerucsd/supabase-sso/nextjs";
 export const GET = createSsoCallbackHandler(
   {
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -135,7 +135,7 @@ export const GET = createSsoCallbackHandler(
 );
 
 // app/page.tsx — server components
-import { getServerAppClaims } from "@ucsd/supabase-sso/nextjs";
+import { getServerAppClaims } from "@jsmillerucsd/supabase-sso/nextjs";
 import { cookies } from "next/headers";
 const claims = await getServerAppClaims(await cookies(), {
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,

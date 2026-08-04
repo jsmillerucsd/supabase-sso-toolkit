@@ -1,5 +1,5 @@
 -- ==============================================================================
--- @ucsd/supabase-sso — 0002_identity_projection        (depends on: 0001)
+-- @jsmillerucsd/supabase-sso — 0002_identity_projection        (depends on: 0001)
 -- ==============================================================================
 -- The trust boundary: SAML attributes are copied from `auth.identities` into
 -- `private.user_attributes` on every sign-in. Everything downstream reads only
