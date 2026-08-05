@@ -69,6 +69,10 @@ schema is touched.
 
 Full signatures and granting roles: **[reference](docs/reference.md)**.
 
+The toolkit ships no admin API by design — role grants and mappings are app
+decisions. A complete, copy-paste example of building your own admin RPCs on
+the shipped guards (including first-admin bootstrap): **[admin RPCs](docs/admin-rpcs.md)**.
+
 ## Install
 
 Add one line to your app's `.npmrc`:
