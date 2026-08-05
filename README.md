@@ -7,6 +7,11 @@ for RLS policies. Ships a Next.js/SPA client for sign-in, callback, and claims.
 
 Not an app template. No admin UI, no user management, no profile tables.
 
+Building with an AI coding agent? Point it at **[AGENTS.md](AGENTS.md)** —
+shipped in the package at `node_modules/@jsmillerucsd/supabase-sso/AGENTS.md`
+along with `docs/` — for the trust model, invariants, and correct usage
+patterns.
+
 ## How it works
 
 ```

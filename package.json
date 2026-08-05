@@ -41,7 +41,9 @@
   "files": [
     "dist",
     "sql",
-    "README.md"
+    "docs/*.md",
+    "README.md",
+    "AGENTS.md"
   ],
   "scripts": {
     "build": "npm run build:sql && tsup",
