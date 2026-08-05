@@ -3,6 +3,14 @@
 This file is for agents working on the toolkit itself. For agents *using* the
 package in an app, the shipped guide is AGENTS.md (also in the npm tarball).
 
+## Recommended skills
+
+Install Supabase's official agent skills (`npx skills add supabase/agent-skills`,
+https://supabase.com/docs/guides/getting-started/ai-skills.md) and follow the
+`supabase-postgres-best-practices` skill when writing or reviewing SQL here.
+Where its general advice conflicts with this file's hard rules (idempotency,
+fail-open, hook budget, read-source rule), this file wins.
+
 ## Commands
 
 - `npm run build` — regenerates `sql/install.sql`, then tsup (ESM+CJS+dts).

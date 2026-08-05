@@ -99,3 +99,20 @@ Dept codes are stored with leading zeros stripped ("578", not "0578");
   redirects through the campus IdP logout URL.
 - Full docs (on GitHub and shipped in `docs/`): setup.md, reference.md,
   admin-rpcs.md, idp-registration.md.
+
+## Recommended agent skills
+
+Beyond this guide, install Supabase's official agent skills in the app repo —
+they cover general Supabase development and Postgres best practices that this
+package assumes (RLS policy patterns, migration hygiene, query performance):
+
+```bash
+npx skills add supabase/agent-skills
+```
+
+Docs: https://supabase.com/docs/guides/getting-started/ai-skills.md
+
+When writing SQL for the app (policies, admin RPCs from docs/admin-rpcs.md,
+indexes), follow the `supabase-postgres-best-practices` skill in that set. The
+rules in this file are stricter where they overlap — this package's invariants
+win inside its wiring.
