@@ -1,4 +1,4 @@
-# @jsmillerucsd/supabase-sso
+# supabase-sso-toolkit
 
 SAML SSO attribute projection and RLS wiring for Supabase projects at UCSD.
 Connects your app to the campus Shibboleth IdP, copies SAML attributes into a
