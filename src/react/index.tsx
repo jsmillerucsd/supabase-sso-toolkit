@@ -10,6 +10,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -141,7 +142,12 @@ export function useHasRole(role: string): boolean {
 export function AuthCallback(props: { children?: ReactNode }): ReactNode {
   const { supabase, config } = useSso();
 
+  // Run-once guard: StrictMode double-invokes effects, and a second
+  // exchangeCodeForSession burns the single-use PKCE code and fails the flow.
+  const ran = useRef(false);
   useEffect(() => {
+    if (ran.current) return;
+    ran.current = true;
     void handleAuthCallback(supabase, config);
   }, [supabase, config]);
 

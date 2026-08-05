@@ -365,9 +365,10 @@ BEGIN
     BEGIN
       PERFORM private.project_user_attributes(NEW.user_id, NEW.identity_data);
     EXCEPTION WHEN OTHERS THEN
+      -- Log only. synced_at is NOT bumped: it must keep reflecting the last
+      -- SUCCESSFUL projection, or staleness monitoring cannot see the failure.
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
       VALUES (NEW.user_id, 'projection_trigger', SQLERRM, NEW.identity_data);
-      UPDATE private.user_attributes SET synced_at = now() WHERE user_id = NEW.user_id;
     END;
   END IF;
   RETURN NEW;
@@ -381,9 +382,17 @@ CREATE TRIGGER on_sso_identity_projected
   EXECUTE FUNCTION private.on_identity_change();
 
 -- ------------------------------------------------------------------------------
--- Backfill — safe on a fresh schema, safe to re-run
+-- private.reproject_all_sso_identities — backfill / adapter re-projection
 -- ------------------------------------------------------------------------------
-DO $$
+-- Fail-open per user: one bad payload logs (prefixed with p_label) and moves on.
+-- Called at install time here and by campus adapter modules after they replace
+-- private.extract_attributes.
+CREATE OR REPLACE FUNCTION private.reproject_all_sso_identities(p_label text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
 DECLARE
   r record;
 BEGIN
@@ -396,10 +405,13 @@ BEGIN
       PERFORM private.project_user_attributes(r.user_id, r.identity_data);
     EXCEPTION WHEN OTHERS THEN
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
-      VALUES (r.user_id, 'projection_trigger', 'backfill: ' || SQLERRM, r.identity_data);
+      VALUES (r.user_id, 'projection_trigger', p_label || ': ' || SQLERRM, r.identity_data);
     END;
   END LOOP;
 END;
 $$;
+
+-- Backfill — safe on a fresh schema, safe to re-run.
+SELECT private.reproject_all_sso_identities('backfill');
 
 SELECT private.register_module('0002_identity_projection', '1.0.0');

@@ -1,0 +1,36 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      # Bring up the full local stack; `supabase db reset` (run by npm test)
+      # restarts containers and needs them all present.
+      - run: supabase start
+        working-directory: dev
+
+      # pretest re-generates sql/install.sql and stages dev/supabase from it,
+      # so the suite always runs against the file that ships.
+      - run: npm test

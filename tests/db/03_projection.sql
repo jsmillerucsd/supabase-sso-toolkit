@@ -6,7 +6,7 @@
 -- ==============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(17);
+SELECT plan(19);
 
 -- ------------------------------------------------------------------------------
 -- Spec 08: projection REPLACES, it does not merge
@@ -49,7 +49,7 @@ SELECT is(
 -- ------------------------------------------------------------------------------
 -- Spec 09: fail-open — a projection defect must not break sign-in
 -- ------------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION private.extract_attributes(p_source_kind text, p_payload jsonb)
+CREATE OR REPLACE FUNCTION private.extract_attributes(p_payload jsonb)
 RETURNS private.user_attributes
 LANGUAGE plpgsql STABLE SET search_path = ''
 AS $$ BEGIN RAISE EXCEPTION 'simulated extraction defect'; END; $$;

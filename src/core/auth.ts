@@ -1,4 +1,4 @@
-import type { AuthError, SupabaseClient } from "@supabase/supabase-js";
+import type { AuthError, Session, SupabaseClient } from "@supabase/supabase-js";
 import { resolveConfig, safeRedirectPath, type SsoConfig } from "./config.js";
 
 export interface SignInOptions {
@@ -21,6 +21,14 @@ export async function signInWithSSO(
   opts: SignInOptions = {},
 ): Promise<{ url: string | null; error: AuthError | null }> {
   const cfg = resolveConfig(config);
+
+  if (!cfg.providerId && !cfg.domain) {
+    // Only reachable in localAuthMode (resolveConfig enforces it otherwise).
+    throw new Error(
+      "[supabase-sso] signInWithSSO needs `providerId` or `domain`; " +
+        "in localAuthMode use your local sign-in path instead.",
+    );
+  }
 
   const redirectTo =
     opts.redirectTo ??
@@ -77,13 +85,10 @@ export async function handleAuthCallback(
       const { error } = await supabase.auth.exchangeCodeForSession(code);
       if (error) throw error;
     } else {
-      // Implicit flow: supabase-js parses the fragment on load. Give it a beat.
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) {
-        await new Promise((r) => setTimeout(r, 250));
-        const retry = await supabase.auth.getSession();
-        if (!retry.data.session) throw new Error("No session established from callback");
-      }
+      // Implicit flow: supabase-js parses the fragment asynchronously on load.
+      // Wait for the auth event rather than racing it with a fixed delay.
+      const session = await waitForSession(supabase, 5000);
+      if (!session) throw new Error("No session established from callback");
     }
 
     goto(safeRedirectPath(url.searchParams.get("next"), cfg.homePath));
@@ -92,6 +97,28 @@ export async function handleAuthCallback(
     const message = err instanceof Error ? err.message : "callback_failed";
     goto(`${cfg.loginPath}?error=${encodeURIComponent(message)}`);
   }
+}
+
+/** Resolves with the session as soon as supabase-js emits one, or null on timeout. */
+async function waitForSession(
+  supabase: SupabaseClient,
+  timeoutMs: number,
+): Promise<Session | null> {
+  const { data } = await supabase.auth.getSession();
+  if (data.session) return data.session;
+
+  return new Promise<Session | null>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (session: Session | null) => {
+      clearTimeout(timer);
+      sub.subscription.unsubscribe();
+      resolve(session);
+    };
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) finish(session);
+    });
+    timer = setTimeout(() => finish(null), timeoutMs);
+  });
 }
 
 /**

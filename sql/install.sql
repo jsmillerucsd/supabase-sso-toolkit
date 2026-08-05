@@ -123,7 +123,7 @@ BEGIN
 END;
 $$;
 
-SELECT private.register_module('0001_core', '1.0.0');
+SELECT private.register_module('0001_core', '1.1.0');
 
 
 -- ==============================================================================
@@ -493,9 +493,10 @@ BEGIN
     BEGIN
       PERFORM private.project_user_attributes(NEW.user_id, NEW.identity_data);
     EXCEPTION WHEN OTHERS THEN
+      -- Log only. synced_at is NOT bumped: it must keep reflecting the last
+      -- SUCCESSFUL projection, or staleness monitoring cannot see the failure.
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
       VALUES (NEW.user_id, 'projection_trigger', SQLERRM, NEW.identity_data);
-      UPDATE private.user_attributes SET synced_at = now() WHERE user_id = NEW.user_id;
     END;
   END IF;
   RETURN NEW;
@@ -509,9 +510,17 @@ CREATE TRIGGER on_sso_identity_projected
   EXECUTE FUNCTION private.on_identity_change();
 
 -- ------------------------------------------------------------------------------
--- Backfill — safe on a fresh schema, safe to re-run
+-- private.reproject_all_sso_identities — backfill / adapter re-projection
 -- ------------------------------------------------------------------------------
-DO $$
+-- Fail-open per user: one bad payload logs (prefixed with p_label) and moves on.
+-- Called at install time here and by campus adapter modules after they replace
+-- private.extract_attributes.
+CREATE OR REPLACE FUNCTION private.reproject_all_sso_identities(p_label text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
 DECLARE
   r record;
 BEGIN
@@ -524,13 +533,16 @@ BEGIN
       PERFORM private.project_user_attributes(r.user_id, r.identity_data);
     EXCEPTION WHEN OTHERS THEN
       INSERT INTO private.sync_errors (user_id, source, detail, payload)
-      VALUES (r.user_id, 'projection_trigger', 'backfill: ' || SQLERRM, r.identity_data);
+      VALUES (r.user_id, 'projection_trigger', p_label || ': ' || SQLERRM, r.identity_data);
     END;
   END LOOP;
 END;
 $$;
 
-SELECT private.register_module('0002_identity_projection', '1.0.0');
+-- Backfill — safe on a fresh schema, safe to re-run.
+SELECT private.reproject_all_sso_identities('backfill');
+
+SELECT private.register_module('0002_identity_projection', '1.1.0');
 
 
 -- ==============================================================================
@@ -743,7 +755,7 @@ BEGIN
 END;
 $$;
 
-SELECT private.register_module('0003_rls_helpers', '1.0.0');
+SELECT private.register_module('0003_rls_helpers', '1.1.0');
 
 
 -- ==============================================================================
@@ -789,10 +801,12 @@ CREATE TABLE IF NOT EXISTS private.user_roles (
   UNIQUE (user_id, role)
 );
 
-CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON private.user_roles (user_id);
-CREATE INDEX IF NOT EXISTS idx_user_roles_role    ON private.user_roles (role);
-CREATE INDEX IF NOT EXISTS idx_user_roles_active  ON private.user_roles (user_id, role)
-  WHERE expires_at IS NULL;
+-- UNIQUE (user_id, role) above already serves the per-user lookup, and a partial
+-- index on `expires_at IS NULL` can never match the expiry-aware recompute
+-- filter. Both shipped in earlier versions; drop them on upgrade.
+DROP INDEX IF EXISTS private.idx_user_roles_user_id;
+DROP INDEX IF EXISTS private.idx_user_roles_active;
+CREATE INDEX IF NOT EXISTS idx_user_roles_role ON private.user_roles (role);
 
 CREATE TABLE IF NOT EXISTS private.ad_group_role_mappings (
   id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -864,7 +878,8 @@ BEGIN
     ON CONFLICT (user_id) DO UPDATE SET
       app_roles   = '{}',
       dept_codes  = '{}',
-      computed_at = now();    RETURN;
+      computed_at = now();
+    RETURN;
   END IF;
 
   SELECT array_agg(ur.role) INTO manual
@@ -938,6 +953,65 @@ END;
 $$;
 
 -- ------------------------------------------------------------------------------
+-- Expiry sweep — a grant whose expires_at passes must actually go away
+-- ------------------------------------------------------------------------------
+-- Claims are materialized, so an expiry only takes effect at the next recompute,
+-- and pure time passage triggers none: without this sweep an expired grant keeps
+-- riding in every freshly minted JWT (and in user_has_role_in_db) until some
+-- unrelated role-config write happens to fire a recompute.
+--
+-- Targets exactly the stale rows: claims computed while the grant was still
+-- valid (computed_at < expires_at) on a grant that has since expired. A swept
+-- user's computed_at moves past expires_at, so the row self-clears from the scan.
+CREATE OR REPLACE FUNCTION private.recompute_stale_expiries()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  r record;
+  n integer := 0;
+BEGIN
+  FOR r IN
+    SELECT DISTINCT ur.user_id
+    FROM private.user_roles ur
+    JOIN private.user_effective_claims ec ON ec.user_id = ur.user_id
+    WHERE ur.expires_at IS NOT NULL
+      AND ur.expires_at <= now()
+      AND ec.computed_at < ur.expires_at
+  LOOP
+    BEGIN
+      PERFORM private.recompute_user_claims(r.user_id);
+      n := n + 1;
+    EXCEPTION WHEN OTHERS THEN
+      INSERT INTO private.sync_errors (user_id, source, detail)
+      VALUES (r.user_id, 'recompute', 'expiry sweep: ' || SQLERRM);
+    END;
+  END LOOP;
+  RETURN n;
+END;
+$$;
+
+-- Hourly schedule via pg_cron (hosted Supabase and the local stack both ship
+-- it). cron.schedule upserts by job name, so re-running the installer is safe.
+-- Without pg_cron, call private.recompute_stale_expiries() from your own
+-- scheduler — otherwise expiry does not take effect on its own.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    PERFORM cron.schedule('sso_toolkit_expiry_sweep', '7 * * * *',
+                          'SELECT private.recompute_stale_expiries()');
+  ELSE
+    RAISE WARNING 'pg_cron unavailable: schedule private.recompute_stale_expiries() externally, or expired role grants persist until the next recompute';
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'could not schedule expiry sweep (%); schedule private.recompute_stale_expiries() externally', SQLERRM;
+END;
+$$;
+
+-- ------------------------------------------------------------------------------
 -- Loud warning when mapping against a degraded attribute
 -- ------------------------------------------------------------------------------
 -- Fires however the row arrives — seed script, migration, psql — because the
@@ -973,7 +1047,7 @@ CREATE TRIGGER warn_ad_group_mapping_quality
 -- Pick up roles for users projected before this module was installed.
 SELECT private.recompute_all_user_claims();
 
-SELECT private.register_module('0004_roles', '1.0.0');
+SELECT private.register_module('0004_roles', '1.1.0');
 
 
 -- ==============================================================================
@@ -1088,7 +1162,7 @@ GRANT USAGE  ON SCHEMA private                TO supabase_auth_admin;
 GRANT SELECT ON private.user_effective_claims TO supabase_auth_admin;
 GRANT SELECT ON private.user_attributes       TO supabase_auth_admin;
 
-SELECT private.register_module('0005_auth_hook', '1.0.0');
+SELECT private.register_module('0005_auth_hook', '1.1.0');
 
 
 -- ==============================================================================
@@ -1103,6 +1177,11 @@ SELECT private.register_module('0005_auth_hook', '1.0.0');
 --
 -- Standard keys live at the top level of identity_data (sub, email, name, ...);
 -- every UCSD attribute nests under identity_data.custom_claims.
+--
+-- CONTRACT: the custom_claims key names read here are produced by the provider
+-- attribute mapping in sql/assets/ucsd-attribute-mapping.json (passed to
+-- `supabase sso add --attribute-mapping-file`). Renaming a key in either place
+-- without the other silently yields NULL attributes — keep them in sync.
 --
 -- Depends on: 0002 (0004 optional)
 -- ==============================================================================
@@ -1152,28 +1231,9 @@ BEGIN
 END;
 $$;
 
--- ------------------------------------------------------------------------------
--- Re-project everything so existing rows pick up UCSD extraction
--- ------------------------------------------------------------------------------
-DO $$
-DECLARE
-  r record;
-BEGIN
-  FOR r IN
-    SELECT i.user_id, i.identity_data
-    FROM auth.identities i
-    WHERE i.provider LIKE 'sso:%'
-  LOOP
-    BEGIN
-      PERFORM private.project_user_attributes(r.user_id, r.identity_data);
-    EXCEPTION WHEN OTHERS THEN
-      INSERT INTO private.sync_errors (user_id, source, detail, payload)
-      VALUES (r.user_id, 'projection_trigger', 'ucsd adapter reproject: ' || SQLERRM, r.identity_data);
-    END;
-  END LOOP;
-END;
-$$;
+-- Re-project everything so existing rows pick up UCSD extraction.
+SELECT private.reproject_all_sso_identities('ucsd adapter reproject');
 
 SELECT private.recompute_all_user_claims();
 
-SELECT private.register_module('0006_ucsd_adapter', '1.0.0');
+SELECT private.register_module('0006_ucsd_adapter', '1.1.0');

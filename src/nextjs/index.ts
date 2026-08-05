@@ -4,7 +4,7 @@
  * Server-only: imports `next/server` and `@supabase/ssr`. Do not import this
  * from a client component.
  */
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, parseCookieHeader } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { extractAppClaims, type AppClaims } from "../core/claims.js";
 import { performLogout } from "../core/auth.js";
@@ -21,6 +21,13 @@ export interface NextSsoEnv {
   supabaseUrl: string;
   /** Publishable (or legacy anon) key. Never the secret key — this reaches the browser. */
   supabasePublishableKey: string;
+  /**
+   * Canonical public origin, e.g. "https://myapp.ucsd.edu". Strongly
+   * recommended: when set, post-auth redirects use it instead of trusting the
+   * request's x-forwarded-host header, which is client-controllable on
+   * deployments without a normalizing proxy (open-redirect vector).
+   */
+  siteUrl?: string;
 }
 
 /**
@@ -36,6 +43,13 @@ export async function updateSession(
   env: NextSsoEnv,
   config: SsoConfig,
 ): Promise<NextResponse> {
+  const path = request.nextUrl.pathname;
+
+  // Static assets never need a session refresh; skip the client + JWT work.
+  if (path.startsWith("/_next") || path === "/favicon.ico") {
+    return NextResponse.next({ request });
+  }
+
   const cfg = resolveConfig(config);
   let response = NextResponse.next({ request });
 
@@ -55,17 +69,18 @@ export async function updateSession(
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims as Record<string, unknown> | undefined;
 
-  const path = request.nextUrl.pathname;
+  // Segment-exact matching: "/authors" or "/login-admin" must NOT be public.
   const isPublic =
-    path.startsWith("/auth") ||
-    path.startsWith(cfg.loginPath) ||
-    path.startsWith("/_next") ||
-    path === "/favicon.ico";
+    path === "/auth" ||
+    path.startsWith("/auth/") ||
+    path === cfg.loginPath ||
+    path.startsWith(`${cfg.loginPath}/`);
 
   if (!claims && !isPublic && !cfg.localAuthMode) {
     const url = request.nextUrl.clone();
     url.pathname = cfg.loginPath;
-    url.searchParams.set("next", path);
+    url.search = "";
+    url.searchParams.set("next", `${path}${request.nextUrl.search}`);
     const redirect = NextResponse.redirect(url);
     for (const cookie of response.cookies.getAll()) redirect.cookies.set(cookie);
     return redirect;
@@ -87,7 +102,9 @@ export function createSsoCallbackHandler(env: NextSsoEnv, config: SsoConfig) {
   return async function GET(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const forwardedHost = request.headers.get("x-forwarded-host");
-    const origin = forwardedHost ? `https://${forwardedHost}` : url.origin;
+    const origin =
+      env.siteUrl?.replace(/\/$/, "") ??
+      (forwardedHost ? `https://${forwardedHost}` : url.origin);
 
     const fail = (reason: string) =>
       NextResponse.redirect(`${origin}${cfg.loginPath}?error=${encodeURIComponent(reason)}`);
@@ -102,19 +119,7 @@ export function createSsoCallbackHandler(env: NextSsoEnv, config: SsoConfig) {
     const next = safeRedirectPath(url.searchParams.get("next"), cfg.homePath);
     const response = NextResponse.redirect(`${origin}${next}`);
 
-    const supabase = createServerClient(env.supabaseUrl, env.supabasePublishableKey, {
-      cookies: {
-        getAll: () =>
-          request.headers.get("cookie")
-            ? parseCookieHeader(request.headers.get("cookie") as string)
-            : [],
-        setAll: (cookiesToSet: CookiesToSet) => {
-          for (const { name, value, options } of cookiesToSet) {
-            response.cookies.set(name, value, options);
-          }
-        },
-      },
-    });
+    const supabase = supabaseForRequest(request, response, env);
 
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) return fail(error.message);
@@ -145,22 +150,10 @@ export function createLogoutHandler(env: NextSsoEnv, config: SsoConfig) {
 
   return async function POST(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const origin = url.origin;
+    const origin = env.siteUrl?.replace(/\/$/, "") ?? url.origin;
     const response = NextResponse.redirect(`${origin}${cfg.loginPath}`, { status: 303 });
 
-    const supabase = createServerClient(env.supabaseUrl, env.supabasePublishableKey, {
-      cookies: {
-        getAll: () =>
-          request.headers.get("cookie")
-            ? parseCookieHeader(request.headers.get("cookie") as string)
-            : [],
-        setAll: (cookiesToSet: CookiesToSet) => {
-          for (const { name, value, options } of cookiesToSet) {
-            response.cookies.set(name, value, options);
-          }
-        },
-      },
-    });
+    const supabase = supabaseForRequest(request, response, env);
 
     const idpUrl = await performLogout(supabase, cfg, `${origin}${cfg.loginPath}`);
     if (!idpUrl) return response;
@@ -171,15 +164,23 @@ export function createLogoutHandler(env: NextSsoEnv, config: SsoConfig) {
   };
 }
 
-function parseCookieHeader(header: string): { name: string; value: string }[] {
-  return header
-    .split(";")
-    .map((pair) => pair.trim())
-    .filter(Boolean)
-    .map((pair) => {
-      const idx = pair.indexOf("=");
-      return idx === -1
-        ? { name: pair, value: "" }
-        : { name: pair.slice(0, idx), value: decodeURIComponent(pair.slice(idx + 1)) };
-    });
+/** Client for a plain Request whose cookie writes land on `response`. */
+function supabaseForRequest(request: Request, response: NextResponse, env: NextSsoEnv) {
+  return createServerClient(env.supabaseUrl, env.supabasePublishableKey, {
+    cookies: {
+      getAll: () => {
+        const header = request.headers.get("cookie");
+        if (!header) return [];
+        return parseCookieHeader(header).map(({ name, value }) => ({
+          name,
+          value: value ?? "",
+        }));
+      },
+      setAll: (cookiesToSet: CookiesToSet) => {
+        for (const { name, value, options } of cookiesToSet) {
+          response.cookies.set(name, value, options);
+        }
+      },
+    },
+  });
 }

@@ -37,8 +37,18 @@ ${modules.map((m) => `--   ${m}`).join("\n")}
 
 `;
 
+// The modules carry a placeholder version in their register_module calls; the
+// shipped installer stamps the real package version so public.toolkit_version()
+// reports what is actually installed.
 const body = modules
-  .map((m) => readFileSync(join(SQL_DIR, m), "utf8").trimEnd())
+  .map((m) =>
+    readFileSync(join(SQL_DIR, m), "utf8")
+      .trimEnd()
+      .replace(
+        /register_module\('([^']+)',\s*'[^']*'\)/g,
+        `register_module('$1', '${version}')`,
+      ),
+  )
   .join("\n\n\n");
 
 writeFileSync(OUT, `${header}${body}\n`, "utf8");

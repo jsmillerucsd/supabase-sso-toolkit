@@ -41,10 +41,12 @@ CREATE TABLE IF NOT EXISTS private.user_roles (
   UNIQUE (user_id, role)
 );
 
-CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON private.user_roles (user_id);
-CREATE INDEX IF NOT EXISTS idx_user_roles_role    ON private.user_roles (role);
-CREATE INDEX IF NOT EXISTS idx_user_roles_active  ON private.user_roles (user_id, role)
-  WHERE expires_at IS NULL;
+-- UNIQUE (user_id, role) above already serves the per-user lookup, and a partial
+-- index on `expires_at IS NULL` can never match the expiry-aware recompute
+-- filter. Both shipped in earlier versions; drop them on upgrade.
+DROP INDEX IF EXISTS private.idx_user_roles_user_id;
+DROP INDEX IF EXISTS private.idx_user_roles_active;
+CREATE INDEX IF NOT EXISTS idx_user_roles_role ON private.user_roles (role);
 
 CREATE TABLE IF NOT EXISTS private.ad_group_role_mappings (
   id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -116,7 +118,8 @@ BEGIN
     ON CONFLICT (user_id) DO UPDATE SET
       app_roles   = '{}',
       dept_codes  = '{}',
-      computed_at = now();    RETURN;
+      computed_at = now();
+    RETURN;
   END IF;
 
   SELECT array_agg(ur.role) INTO manual
@@ -186,6 +189,65 @@ BEGIN
       t, t
     );
   END LOOP;
+END;
+$$;
+
+-- ------------------------------------------------------------------------------
+-- Expiry sweep — a grant whose expires_at passes must actually go away
+-- ------------------------------------------------------------------------------
+-- Claims are materialized, so an expiry only takes effect at the next recompute,
+-- and pure time passage triggers none: without this sweep an expired grant keeps
+-- riding in every freshly minted JWT (and in user_has_role_in_db) until some
+-- unrelated role-config write happens to fire a recompute.
+--
+-- Targets exactly the stale rows: claims computed while the grant was still
+-- valid (computed_at < expires_at) on a grant that has since expired. A swept
+-- user's computed_at moves past expires_at, so the row self-clears from the scan.
+CREATE OR REPLACE FUNCTION private.recompute_stale_expiries()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  r record;
+  n integer := 0;
+BEGIN
+  FOR r IN
+    SELECT DISTINCT ur.user_id
+    FROM private.user_roles ur
+    JOIN private.user_effective_claims ec ON ec.user_id = ur.user_id
+    WHERE ur.expires_at IS NOT NULL
+      AND ur.expires_at <= now()
+      AND ec.computed_at < ur.expires_at
+  LOOP
+    BEGIN
+      PERFORM private.recompute_user_claims(r.user_id);
+      n := n + 1;
+    EXCEPTION WHEN OTHERS THEN
+      INSERT INTO private.sync_errors (user_id, source, detail)
+      VALUES (r.user_id, 'recompute', 'expiry sweep: ' || SQLERRM);
+    END;
+  END LOOP;
+  RETURN n;
+END;
+$$;
+
+-- Hourly schedule via pg_cron (hosted Supabase and the local stack both ship
+-- it). cron.schedule upserts by job name, so re-running the installer is safe.
+-- Without pg_cron, call private.recompute_stale_expiries() from your own
+-- scheduler — otherwise expiry does not take effect on its own.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    PERFORM cron.schedule('sso_toolkit_expiry_sweep', '7 * * * *',
+                          'SELECT private.recompute_stale_expiries()');
+  ELSE
+    RAISE WARNING 'pg_cron unavailable: schedule private.recompute_stale_expiries() externally, or expired role grants persist until the next recompute';
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'could not schedule expiry sweep (%); schedule private.recompute_stale_expiries() externally', SQLERRM;
 END;
 $$;
 

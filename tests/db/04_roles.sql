@@ -6,7 +6,7 @@
 -- ==============================================================================
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(7);
+SELECT plan(10);
 
 INSERT INTO private.app_roles (role, description) VALUES
   ('reader_role', 'test'), ('dept_role', 'test'), ('emplid_role', 'test')
@@ -42,6 +42,40 @@ SELECT ok(
             FROM private.user_effective_claims ec
            WHERE ec.user_id = '11111111-1111-1111-1111-111111111111'), false)),
   'roles: an expired manual grant is dropped on recompute'
+);
+
+-- ------------------------------------------------------------------------------
+-- Expiry sweep: an expired grant is dropped even when nothing else writes
+-- ------------------------------------------------------------------------------
+-- Any write to user_roles fires a recompute, which would hide the staleness the
+-- sweep exists to fix. Simulate pure time passage: disable the trigger for the
+-- expiring UPDATE, and backdate computed_at (now() is frozen in a transaction).
+UPDATE private.user_roles SET expires_at = now() + interval '1 hour'
+ WHERE user_id = '11111111-1111-1111-1111-111111111111' AND role = 'reader_role';
+
+ALTER TABLE private.user_roles DISABLE TRIGGER on_user_roles_changed;
+UPDATE private.user_roles SET expires_at = now() - interval '1 second'
+ WHERE user_id = '11111111-1111-1111-1111-111111111111' AND role = 'reader_role';
+ALTER TABLE private.user_roles ENABLE TRIGGER on_user_roles_changed;
+
+UPDATE private.user_effective_claims SET computed_at = now() - interval '1 day'
+ WHERE user_id = '11111111-1111-1111-1111-111111111111';
+
+SELECT ok(
+  COALESCE((SELECT 'reader_role' = ANY (ec.app_roles)
+            FROM private.user_effective_claims ec
+           WHERE ec.user_id = '11111111-1111-1111-1111-111111111111'), false),
+  'expiry sweep: claims are stale after expiry with no writes (the gap the sweep closes)'
+);
+
+SELECT is(private.recompute_stale_expiries(), 1,
+          'expiry sweep: recomputes exactly the one stale user');
+
+SELECT ok(
+  NOT (COALESCE((SELECT 'reader_role' = ANY (ec.app_roles)
+            FROM private.user_effective_claims ec
+           WHERE ec.user_id = '11111111-1111-1111-1111-111111111111'), false)),
+  'expiry sweep: the expired grant is gone afterwards'
 );
 
 -- ------------------------------------------------------------------------------

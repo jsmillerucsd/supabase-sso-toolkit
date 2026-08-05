@@ -11,6 +11,11 @@
 -- Standard keys live at the top level of identity_data (sub, email, name, ...);
 -- every UCSD attribute nests under identity_data.custom_claims.
 --
+-- CONTRACT: the custom_claims key names read here are produced by the provider
+-- attribute mapping in sql/assets/ucsd-attribute-mapping.json (passed to
+-- `supabase sso add --attribute-mapping-file`). Renaming a key in either place
+-- without the other silently yields NULL attributes — keep them in sync.
+--
 -- Depends on: 0002 (0004 optional)
 -- ==============================================================================
 
@@ -59,27 +64,8 @@ BEGIN
 END;
 $$;
 
--- ------------------------------------------------------------------------------
--- Re-project everything so existing rows pick up UCSD extraction
--- ------------------------------------------------------------------------------
-DO $$
-DECLARE
-  r record;
-BEGIN
-  FOR r IN
-    SELECT i.user_id, i.identity_data
-    FROM auth.identities i
-    WHERE i.provider LIKE 'sso:%'
-  LOOP
-    BEGIN
-      PERFORM private.project_user_attributes(r.user_id, r.identity_data);
-    EXCEPTION WHEN OTHERS THEN
-      INSERT INTO private.sync_errors (user_id, source, detail, payload)
-      VALUES (r.user_id, 'projection_trigger', 'ucsd adapter reproject: ' || SQLERRM, r.identity_data);
-    END;
-  END LOOP;
-END;
-$$;
+-- Re-project everything so existing rows pick up UCSD extraction.
+SELECT private.reproject_all_sso_identities('ucsd adapter reproject');
 
 SELECT private.recompute_all_user_claims();
 

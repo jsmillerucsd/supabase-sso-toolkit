@@ -1,34 +1,37 @@
-import { defineConfig } from "tsup";
-import { readFileSync, writeFileSync } from "node:fs";
+import { defineConfig, type Options } from "tsup";
 
-// Prepend `"use client"` to the react entry's runtime outputs. tsup strips the
-// source-level directive when bundling, which would make Next.js App Router
-// treat `@jsmillerucsd/supabase-sso/react` as a Server Component and fail on import.
-function prependUseClient() {
-  for (const f of ["dist/react.js", "dist/react.cjs"]) {
-    const before = readFileSync(f, "utf8");
-    if (!before.startsWith('"use client"')) {
-      writeFileSync(f, `"use client";\n${before}`, "utf8");
-    }
-  }
-}
-
-export default defineConfig({
-  entry: {
-    index: "src/index.ts",
-    nextjs: "src/nextjs/index.ts",
-    react: "src/react/index.tsx",
-  },
+const shared: Options = {
   format: ["esm", "cjs"],
   dts: true,
   sourcemap: true,
-  clean: true,
   splitting: false,
   treeshake: true,
   target: "es2022",
   platform: "neutral",
   external: ["next", "next/server", "react", "react/jsx-runtime", "@supabase/ssr", "@supabase/supabase-js"],
-  async onSuccess() {
-    prependUseClient();
+};
+
+// The react entry builds in its own config so it can carry a `"use client"`
+// banner (tsup strips the source-level directive when bundling, and Next.js
+// App Router would otherwise treat the entry as a Server Component). A banner,
+// unlike a post-build prepend, is applied before sourcemap generation. The
+// banner must not be global — the nextjs entry is server-only.
+export default defineConfig([
+  {
+    ...shared,
+    entry: {
+      index: "src/index.ts",
+      nextjs: "src/nextjs/index.ts",
+    },
+    clean: true,
   },
-});
+  {
+    ...shared,
+    entry: { react: "src/react/index.tsx" },
+    clean: false,
+    // The rollup treeshake pass drops esbuild banners; the entry is tiny and
+    // tree-shaken by consumers anyway, so trade it for a reliable directive.
+    treeshake: false,
+    banner: { js: '"use client";' },
+  },
+]);

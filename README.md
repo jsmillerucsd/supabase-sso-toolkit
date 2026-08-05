@@ -56,10 +56,13 @@ schema is touched.
 | `private.custom_access_token_hook(jsonb)` | Access token hook. Injects `app_roles`, `dept_codes_array` into the JWT |
 | `private.user_has_role(text)` | RLS policy role check (reads JWT) |
 | `private.user_dept_codes()` | RLS policy department check (reads JWT) |
+| `private.claims_degraded()` | True when the auth hook could not materialize claims (reads JWT) |
+| `private.user_ad_groups()` | Caller's AD group CNs (live DB read) |
 | `private.user_has_role_in_db(text)` | Live role check, bypasses JWT staleness |
 | `private.user_in_ad_group(text)` | AD group membership check |
 | `private.require_admin_read()` | Guard for your read RPCs (JWT only) |
 | `private.require_admin_write()` | Guard for your write RPCs (JWT + live DB) |
+| `private.recompute_stale_expiries()` | Drops expired role grants from claims; scheduled hourly via pg_cron |
 | `public.get_my_attribute_summary()` | Caller's own attributes (RPC) |
 | `public.get_my_ad_groups()` | Caller's AD groups (RPC) |
 | `public.toolkit_version()` | Installed versions (RPC) |
